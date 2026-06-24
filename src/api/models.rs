@@ -109,3 +109,11 @@ pub struct DomainList {
 pub struct Domain {
     pub name: String,
 }
+
+/// An entry from `GET /api/v1/workspaces`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Workspace {
+    pub id: i64,
+    #[serde(default)]
+    pub name: String,
+}

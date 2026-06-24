@@ -19,8 +19,11 @@ custom domain) without leaving the terminal.
 
 ## Features
 
-- **Secure sign-in** — enter your Linkly **API key** (rendered masked) and
-  **workspace ID** on startup. Credentials are **never written to disk**.
+- **Workspace picker & cache** — remembered workspaces (id + name) are listed on
+  startup; pick one or add a new one. Workspace metadata is cached to disk, but
+  **API keys are never persisted** — you still enter the key each time.
+- **Secure sign-in** — enter your Linkly **API key** (rendered masked). For a new
+  workspace you also provide its ID; for a cached one the ID is already known.
 - **Browse links** — a paginated table of every link in the workspace with live
   click stats (total / 30-day / today) and enabled status. The panel title always
   shows the current sort and page (`page 1/3 · 240 total`). Search, sort by any
@@ -72,11 +75,18 @@ The sign-in prompt can be pre-filled from the environment. You still confirm wit
 LINKLY_API_KEY=sk_… LINKLY_WORKSPACE_ID=42 cargo run --release
 ```
 
+### Workspace cache
+
+Known workspaces are stored (id + name only, **no keys**) at
+`~/.config/linkly-tui/workspaces.json` (honouring `XDG_CONFIG_HOME`). Delete the
+file, or press `d` on a workspace in the picker, to forget it.
+
 ## Keybindings
 
 | Screen  | Keys |
 |---------|------|
-| Sign in | `Tab` switch field · `Enter` continue · `Esc` quit |
+| Workspaces | `↑/↓` select · `Enter` continue · `d` forget · `Esc`/`q` quit |
+| Sign in | `Tab` switch field · `Enter` continue · `Esc` back/quit |
 | List    | `↑/↓` move · `Enter` details · `c` create · `/` search · `s` sort · `n`/`p` next/prev page · `r` refresh · `q` quit |
 | Sort    | `↑/↓` field · `d`/`←→` direction · `Enter` apply · `Esc` cancel |
 | Detail  | `↑/↓` move field · `Enter` edit / toggle · `s` save · `Esc` back (prompts if unsaved) |
@@ -94,7 +104,7 @@ network.
 src/
   main.rs            terminal setup/teardown, Tokio runtime, event loop
   app.rs             App state machine (Screen enum), event dispatch, async orchestration
-  config.rs          credential env prefill (no disk persistence)
+  config.rs          credential env prefill + workspace cache (ids/names only)
   api/
     client.rs        LinklyClient — one async method per endpoint
     models.rs        serde models (CreateLinkRequest is the shared write contract)
@@ -102,7 +112,8 @@ src/
     create_form.rs   create-form state + pure build() -> CreateLinkRequest
     edit_form.rs     link editor state (dirty tracking, update payload, save baseline)
   ui/
-    mod.rs           shared theme, status bar, panel/layout helpers
+    mod.rs           shared theme, banner, status bar, panel/layout helpers
+    workspace.rs     startup workspace picker
     auth.rs          sign-in screen
     list.rs          links table
     detail.rs        single-link detail view

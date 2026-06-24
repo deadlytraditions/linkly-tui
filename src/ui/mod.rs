@@ -4,14 +4,34 @@ mod auth;
 mod create;
 mod detail;
 mod list;
+mod workspace;
 
-use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::app::{App, Screen};
+
+/// Shared brand banner, rendered on the startup screens.
+pub const BANNER: &[&str] = &[
+    r"  ██╗     ██╗███╗   ██╗██╗  ██╗██╗  ██╗   ██╗",
+    r"  ██║     ██║████╗  ██║██║ ██╔╝██║  ╚██╗ ██╔╝",
+    r"  ██║     ██║██╔██╗ ██║█████╔╝ ██║   ╚████╔╝ ",
+    r"  ██║     ██║██║╚██╗██║██╔═██╗ ██║    ╚██╔╝  ",
+    r"  ███████╗██║██║ ╚████║██║  ██╗███████╗██║   ",
+    r"  ╚══════╝╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝╚══════╝╚═╝   ",
+];
+
+/// Render the brand banner centred in `area`.
+pub fn render_banner(frame: &mut Frame, area: Rect) {
+    let lines: Vec<Line> = BANNER
+        .iter()
+        .map(|l| Line::from(Span::styled(*l, Style::default().fg(theme::ACCENT))))
+        .collect();
+    frame.render_widget(Paragraph::new(lines).alignment(Alignment::Center), area);
+}
 
 /// Shared colour palette so every screen feels like one product.
 pub mod theme {
@@ -33,6 +53,7 @@ pub mod theme {
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
     match app.screen {
+        Screen::WorkspacePicker => workspace::draw(frame, app),
         Screen::Auth => auth::draw(frame, app),
         Screen::LinkList => list::draw(frame, app),
         Screen::LinkDetail => detail::draw(frame, app),

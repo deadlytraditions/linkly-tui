@@ -7,8 +7,9 @@ use tokio::sync::mpsc::UnboundedSender;
 use tui_input::backend::crossterm::EventHandler;
 use tui_input::Input;
 
-use crate::api::models::{LinkSummary, ListLinksResponse};
+use crate::api::models::{LinkSummary, ListLinksResponse, Workspace};
 use crate::api::LinklyClient;
+use crate::config::CachedWorkspace;
 use crate::forms::{CreateForm, DetailMode, DomainSelector, EditKind, Field, LinkEditor};
 
 pub const PAGE_SIZE: i64 = 100;
@@ -16,6 +17,7 @@ pub const PAGE_SIZE: i64 = 100;
 /// Which screen is currently active.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
+    WorkspacePicker,
     Auth,
     LinkList,
     LinkDetail,
@@ -75,10 +77,11 @@ pub enum AsyncMsg {
     DomainsLoaded(Vec<String>),
     LinkCreated,
     LinkUpdated,
+    WorkspacesLoaded(Vec<Workspace>),
     Error(String),
 }
 
-/// The two-field credential prompt shown on startup.
+/// The credential prompt shown on startup.
 #[derive(Default)]
 pub struct AuthState {
     pub api_key: Input,
@@ -86,6 +89,10 @@ pub struct AuthState {
     /// 0 = api key, 1 = workspace id.
     pub focus: usize,
     pub error: Option<String>,
+    /// When `true` the workspace was chosen from the cache, so only the API key
+    /// is requested and `ws_name` is shown for context.
+    pub ws_locked: bool,
+    pub ws_name: String,
 }
 
 pub struct App {
@@ -97,6 +104,10 @@ pub struct App {
     pub auth: AuthState,
     pub client: Option<LinklyClient>,
     pub workspace_id: i64,
+
+    // Workspace picker (startup).
+    pub cached_workspaces: Vec<CachedWorkspace>,
+    pub picker_cursor: usize,
 
     // Link list state.
     pub links: Vec<LinkSummary>,
@@ -134,15 +145,27 @@ impl App {
             workspace_id: Input::new(ws),
             focus: 0,
             error: None,
+            ws_locked: false,
+            ws_name: String::new(),
+        };
+        let cached_workspaces = crate::config::load_workspaces();
+        // Show the picker first if we have remembered workspaces; otherwise go
+        // straight to the full sign-in form.
+        let screen = if cached_workspaces.is_empty() {
+            Screen::Auth
+        } else {
+            Screen::WorkspacePicker
         };
         Self {
-            screen: Screen::Auth,
+            screen,
             should_quit: false,
             status: String::new(),
             loading: false,
             auth,
             client: None,
             workspace_id: 0,
+            cached_workspaces,
+            picker_cursor: 0,
             links: Vec::new(),
             list_state: TableState::default(),
             page: 1,
@@ -170,6 +193,7 @@ impl App {
     pub fn on_event(&mut self, event: Event) {
         let Event::Key(key) = event else { return };
         match self.screen {
+            Screen::WorkspacePicker => self.on_picker_key(key),
             Screen::Auth => self.on_auth_key(key),
             Screen::LinkList => self.on_list_key(key),
             Screen::LinkDetail => self.on_detail_key(key),
@@ -177,11 +201,87 @@ impl App {
         }
     }
 
-    fn on_auth_key(&mut self, key: KeyEvent) {
+    /// The number of selectable rows in the picker: cached workspaces + the
+    /// trailing "add new" entry.
+    fn picker_len(&self) -> usize {
+        self.cached_workspaces.len() + 1
+    }
+
+    /// True when the picker cursor is on the "+ Add new workspace" row.
+    fn picker_on_add(&self) -> bool {
+        self.picker_cursor >= self.cached_workspaces.len()
+    }
+
+    fn on_picker_key(&mut self, key: KeyEvent) {
         match key.code {
-            KeyCode::Esc => self.should_quit = true,
-            KeyCode::Tab | KeyCode::Down => self.auth.focus = (self.auth.focus + 1) % 2,
-            KeyCode::Up | KeyCode::BackTab => self.auth.focus = (self.auth.focus + 1) % 2,
+            KeyCode::Esc | KeyCode::Char('q') => self.should_quit = true,
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.picker_cursor = self.picker_cursor.saturating_sub(1);
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                self.picker_cursor = (self.picker_cursor + 1).min(self.picker_len() - 1);
+            }
+            KeyCode::Char('d') if !self.picker_on_add() => {
+                self.cached_workspaces.remove(self.picker_cursor);
+                crate::config::save_workspaces(&self.cached_workspaces);
+                self.picker_cursor = self
+                    .picker_cursor
+                    .min(self.cached_workspaces.len().saturating_sub(1));
+                if self.cached_workspaces.is_empty() {
+                    self.picker_cursor = 0;
+                }
+            }
+            KeyCode::Enter => {
+                if self.picker_on_add() {
+                    self.start_auth(None);
+                } else {
+                    let ws = self.cached_workspaces[self.picker_cursor].clone();
+                    self.start_auth(Some(ws));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Move to the API-key prompt. `Some(ws)` locks to a cached workspace (key
+    /// only); `None` asks for both the key and a workspace id.
+    fn start_auth(&mut self, ws: Option<CachedWorkspace>) {
+        let (key, env_ws) = crate::config::env_prefill();
+        self.auth.api_key = Input::new(key);
+        self.auth.error = None;
+        self.auth.focus = 0;
+        match ws {
+            Some(ws) => {
+                self.workspace_id = ws.id;
+                self.auth.ws_locked = true;
+                self.auth.ws_name = ws.name;
+                self.auth.workspace_id = Input::new(ws.id.to_string());
+            }
+            None => {
+                self.auth.ws_locked = false;
+                self.auth.ws_name = String::new();
+                self.auth.workspace_id = Input::new(env_ws);
+            }
+        }
+        self.screen = Screen::Auth;
+    }
+
+    fn on_auth_key(&mut self, key: KeyEvent) {
+        // Number of focusable fields: 1 when the workspace is locked, else 2.
+        let fields = if self.auth.ws_locked { 1 } else { 2 };
+        match key.code {
+            KeyCode::Esc => {
+                // Back to the picker if we have one, otherwise quit.
+                if self.cached_workspaces.is_empty() {
+                    self.should_quit = true;
+                } else {
+                    self.screen = Screen::WorkspacePicker;
+                }
+            }
+            KeyCode::Tab | KeyCode::Down => self.auth.focus = (self.auth.focus + 1) % fields,
+            KeyCode::Up | KeyCode::BackTab => {
+                self.auth.focus = (self.auth.focus + fields - 1) % fields;
+            }
             KeyCode::Enter => self.try_authenticate(),
             _ => {
                 let field = if self.auth.focus == 0 {
@@ -196,14 +296,22 @@ impl App {
 
     fn try_authenticate(&mut self) {
         let key = self.auth.api_key.value().trim().to_string();
-        let ws = self.auth.workspace_id.value().trim().to_string();
         if key.is_empty() {
             self.auth.error = Some("API key is required".to_string());
             return;
         }
-        let Ok(ws_id) = ws.parse::<i64>() else {
-            self.auth.error = Some("Workspace ID must be a number".to_string());
-            return;
+        // A locked (cached) workspace already has its id; otherwise parse input.
+        let ws_id = if self.auth.ws_locked {
+            self.workspace_id
+        } else {
+            let ws = self.auth.workspace_id.value().trim().to_string();
+            match ws.parse::<i64>() {
+                Ok(id) => id,
+                Err(_) => {
+                    self.auth.error = Some("Workspace ID must be a number".to_string());
+                    return;
+                }
+            }
         };
         self.auth.error = None;
         self.client = Some(LinklyClient::new(key));
@@ -214,6 +322,7 @@ impl App {
         self.loading = true;
         self.load_links();
         self.load_domains();
+        self.load_workspaces();
     }
 
     fn on_list_key(&mut self, key: KeyEvent) {
@@ -593,6 +702,33 @@ impl App {
         });
     }
 
+    fn load_workspaces(&self) {
+        let Some(client) = self.client.clone() else { return };
+        let tx = self.tx.clone();
+        tokio::spawn(async move {
+            if let Ok(workspaces) = client.list_workspaces().await {
+                let _ = tx.send(AsyncMsg::WorkspacesLoaded(workspaces));
+            }
+        });
+    }
+
+    /// Upsert the active workspace into the cache and persist it.
+    fn cache_active_workspace(&mut self, name: String) {
+        if let Some(w) = self
+            .cached_workspaces
+            .iter_mut()
+            .find(|w| w.id == self.workspace_id)
+        {
+            w.name = name;
+        } else {
+            self.cached_workspaces.push(CachedWorkspace {
+                id: self.workspace_id,
+                name,
+            });
+        }
+        crate::config::save_workspaces(&self.cached_workspaces);
+    }
+
     // ------------------------------------------------------------------
     // Async result handling
     // ------------------------------------------------------------------
@@ -629,6 +765,17 @@ impl App {
             }
             AsyncMsg::DomainsLoaded(domains) => {
                 self.domains = domains;
+            }
+            AsyncMsg::WorkspacesLoaded(workspaces) => {
+                // Remember the active workspace's name for next time. Fall back
+                // to a synthetic label if the API didn't return a name.
+                let name = workspaces
+                    .iter()
+                    .find(|w| w.id == self.workspace_id)
+                    .map(|w| w.name.clone())
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or_else(|| format!("Workspace {}", self.workspace_id));
+                self.cache_active_workspace(name);
             }
             AsyncMsg::LinkCreated => {
                 self.screen = Screen::LinkList;

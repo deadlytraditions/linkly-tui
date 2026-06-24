@@ -1,4 +1,5 @@
-//! Startup credential prompt with a banner. The API key is rendered masked.
+//! Startup credential prompt. The API key is rendered masked. When a workspace
+//! was picked from the cache, only the API key is requested.
 
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -7,43 +8,34 @@ use ratatui::widgets::{Block, BorderType, Paragraph};
 use ratatui::Frame;
 
 use crate::app::App;
-use crate::ui::{centered_rect, theme};
-
-const BANNER: &[&str] = &[
-    r"  ██╗     ██╗███╗   ██╗██╗  ██╗██╗  ██╗   ██╗",
-    r"  ██║     ██║████╗  ██║██║ ██╔╝██║  ╚██╗ ██╔╝",
-    r"  ██║     ██║██╔██╗ ██║█████╔╝ ██║   ╚████╔╝ ",
-    r"  ██║     ██║██║╚██╗██║██╔═██╗ ██║    ╚██╔╝  ",
-    r"  ███████╗██║██║ ╚████║██║  ██╗███████╗██║   ",
-    r"  ╚══════╝╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝╚══════╝╚═╝   ",
-];
+use crate::ui::{centered_rect, render_banner, theme, BANNER};
 
 pub fn draw(frame: &mut Frame, app: &App) {
-    let area = centered_rect(64, 84, frame.area());
+    let area = centered_rect(64, 90, frame.area());
+    let locked = app.auth.ws_locked;
+
+    // The form box is shorter when only the API key is requested.
+    let form_height = if locked { 6 } else { 8 };
 
     let rows = Layout::vertical([
         Constraint::Length(BANNER.len() as u16), // banner
         Constraint::Length(2),                   // subtitle
-        Constraint::Length(8),                   // form box
+        Constraint::Length(form_height),         // form box
         Constraint::Length(1),                   // footer
     ])
     .flex(ratatui::layout::Flex::Center)
     .split(area);
 
-    // Banner.
-    let banner: Vec<Line> = BANNER
-        .iter()
-        .map(|l| Line::from(Span::styled(*l, Style::default().fg(theme::ACCENT))))
-        .collect();
-    frame.render_widget(
-        Paragraph::new(banner).alignment(Alignment::Center),
-        rows[0],
-    );
+    render_banner(frame, rows[0]);
 
-    // Subtitle.
+    let subtitle = if locked {
+        format!("workspace · {} (id {})", app.auth.ws_name, app.workspace_id)
+    } else {
+        "new workspace · enter API key and workspace ID".to_string()
+    };
     frame.render_widget(
         Paragraph::new(Span::styled(
-            "terminal client · sign in to continue",
+            subtitle,
             Style::default()
                 .fg(theme::MUTED)
                 .add_modifier(Modifier::ITALIC),
@@ -52,7 +44,6 @@ pub fn draw(frame: &mut Frame, app: &App) {
         rows[1],
     );
 
-    // Form box.
     let block = Block::bordered()
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(theme::BORDER))
@@ -63,13 +54,14 @@ pub fn draw(frame: &mut Frame, app: &App) {
     let inner = block.inner(rows[2]);
     frame.render_widget(block, rows[2]);
 
-    let form = Layout::vertical([
-        Constraint::Length(2), // api key
-        Constraint::Length(2), // workspace id
-        Constraint::Length(1), // error
-    ])
-    .horizontal_margin(2)
-    .split(inner);
+    let mut constraints = vec![Constraint::Length(2)]; // api key
+    if !locked {
+        constraints.push(Constraint::Length(2)); // workspace id
+    }
+    constraints.push(Constraint::Length(1)); // error
+    let form = Layout::vertical(constraints)
+        .horizontal_margin(2)
+        .split(inner);
 
     let key_len = app.auth.api_key.value().chars().count();
     field(
@@ -79,13 +71,19 @@ pub fn draw(frame: &mut Frame, app: &App) {
         &"•".repeat(key_len),
         app.auth.focus == 0,
     );
-    field(
-        frame,
-        form[1],
-        "Workspace ID",
-        app.auth.workspace_id.value(),
-        app.auth.focus == 1,
-    );
+
+    let error_row = if locked {
+        form[1]
+    } else {
+        field(
+            frame,
+            form[1],
+            "Workspace ID",
+            app.auth.workspace_id.value(),
+            app.auth.focus == 1,
+        );
+        form[2]
+    };
 
     if let Some(e) = &app.auth.error {
         frame.render_widget(
@@ -93,17 +91,18 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 format!("⚠ {e}"),
                 Style::default().fg(theme::ERROR),
             )),
-            form[2],
+            error_row,
         );
     }
 
-    // Footer.
+    let footer = if app.cached_workspaces.is_empty() {
+        "Tab switch field · Enter continue · Esc quit"
+    } else {
+        "Tab switch field · Enter continue · Esc back"
+    };
     frame.render_widget(
-        Paragraph::new(Span::styled(
-            "Tab switch field   ·   Enter continue   ·   Esc quit",
-            Style::default().fg(theme::MUTED),
-        ))
-        .alignment(Alignment::Center),
+        Paragraph::new(Span::styled(footer, Style::default().fg(theme::MUTED)))
+            .alignment(Alignment::Center),
         rows[3],
     );
 }

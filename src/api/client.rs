@@ -7,7 +7,7 @@
 use anyhow::{bail, Result};
 use serde_json::Value;
 
-use super::models::{CreateLinkRequest, DomainList, ListLinksResponse};
+use super::models::{CreateLinkRequest, DomainList, ListLinksResponse, Workspace};
 
 const BASE_URL: &str = "https://api.linklyhq.com";
 
@@ -84,6 +84,17 @@ impl LinklyClient {
             .json(&body);
         let resp = check(req.send().await?).await?;
         Ok(resp.json().await.unwrap_or(Value::Null))
+    }
+
+    /// List the workspaces the API key can access.
+    pub async fn list_workspaces(&self) -> Result<Vec<Workspace>> {
+        let url = format!("{BASE_URL}/api/v1/workspaces");
+        let req = self
+            .http
+            .get(url)
+            .query(&[("api_key", self.api_key.clone())]);
+        let resp = check(req.send().await?).await?;
+        Ok(resp.json().await?)
     }
 
     /// List the custom domains available in a workspace.
