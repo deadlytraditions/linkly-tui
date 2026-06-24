@@ -111,9 +111,12 @@ pub struct App {
 
     /// The API key used for the current session (for the optional store offer).
     current_key: String,
-    /// Set when authenticating; the first successful link load clears it and may
-    /// offer to store the key.
+    /// Set when authenticating; the first successful link load clears it,
+    /// caches the (now verified) workspace, and may offer to store the key.
     verify_pending: bool,
+    /// Workspace name fetched from the API while verification is still pending,
+    /// applied once the workspace is actually cached.
+    pending_ws_name: Option<String>,
     /// Whether the "store this API key?" prompt is showing.
     pub store_prompt: bool,
 
@@ -176,6 +179,7 @@ impl App {
             picker_cursor: 0,
             current_key: String::new(),
             verify_pending: false,
+            pending_ws_name: None,
             store_prompt: false,
             links: Vec::new(),
             list_state: TableState::default(),
@@ -330,12 +334,10 @@ impl App {
         self.client = Some(LinklyClient::new(key.clone()));
         self.workspace_id = ws_id;
         self.current_key = key;
-        // The first successful link load confirms the key works; only then do we
-        // offer to store it.
+        self.pending_ws_name = None;
+        // The workspace is cached only after the first successful link load
+        // confirms the key and workspace id actually work (see `LinksLoaded`).
         self.verify_pending = true;
-        // Mark as most-recently-used now, so the order persists even if the
-        // workspaces fetch below fails (e.g. rate limited).
-        self.record_workspace_use(None);
         self.screen = Screen::LinkList;
         self.page = 1;
         self.status = "Loading links…".to_string();
@@ -829,10 +831,13 @@ impl App {
                         .min(self.links.len() - 1);
                     self.list_state.select(Some(i));
                 }
-                // The key just verified. Offer to store it unless it's already
-                // stored for this workspace.
+                // A successful response verifies the key and workspace id, so
+                // it's now safe to cache the workspace (and offer to store the
+                // key unless it's already saved for this workspace).
                 if self.verify_pending {
                     self.verify_pending = false;
+                    let name_hint = self.pending_ws_name.take();
+                    self.record_workspace_use(name_hint);
                     if !self.current_key.is_empty() && !self.active_key_stored() {
                         self.store_prompt = true;
                     }
@@ -847,13 +852,19 @@ impl App {
                 self.domains = domains;
             }
             AsyncMsg::WorkspacesLoaded(workspaces) => {
-                // Update the active workspace's stored name now that we know it.
                 let name = workspaces
                     .iter()
                     .find(|w| w.id == self.workspace_id)
                     .map(|w| w.name.clone())
                     .filter(|n| !n.is_empty());
-                self.record_workspace_use(name);
+                if self.cached_workspaces.iter().any(|w| w.id == self.workspace_id) {
+                    // Already cached (verified): refresh its name.
+                    self.record_workspace_use(name);
+                } else {
+                    // Not cached yet — remember the name so it's applied once the
+                    // workspace verifies via a successful link load.
+                    self.pending_ws_name = name;
+                }
             }
             AsyncMsg::LinkCreated => {
                 self.screen = Screen::LinkList;
