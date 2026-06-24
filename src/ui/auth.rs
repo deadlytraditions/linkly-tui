@@ -10,25 +10,28 @@ use ratatui::Frame;
 use tui_input::Input;
 
 use crate::app::App;
-use crate::ui::{centered_rect, input_spans, render_banner, theme, BANNER};
+use crate::ui::{centered_horizontal, input_spans, render_banner, theme, BANNER};
 
 pub fn draw(frame: &mut Frame, app: &App) {
-    let area = centered_rect(64, 90, frame.area());
+    let full = frame.area();
     let locked = app.auth.ws_locked;
 
     // The form box is shorter when only the API key is requested.
     let form_height = if locked { 6 } else { 8 };
 
     let rows = Layout::vertical([
-        Constraint::Length(BANNER.len() as u16), // banner
-        Constraint::Length(2),                   // subtitle
-        Constraint::Length(form_height),         // form box
-        Constraint::Length(1),                   // footer
+        Constraint::Length(1),                    // top padding
+        Constraint::Length(BANNER.len() as u16),  // banner (full width)
+        Constraint::Length(2),                    // subtitle
+        Constraint::Length(1),                    // spacer
+        Constraint::Length(form_height),          // form box
+        Constraint::Length(1),                    // spacer
+        Constraint::Length(1),                    // footer
+        Constraint::Min(0),                       // filler
     ])
-    .flex(ratatui::layout::Flex::Center)
-    .split(area);
+    .split(full);
 
-    render_banner(frame, rows[0]);
+    render_banner(frame, rows[1]);
 
     let subtitle = if locked {
         format!("workspace · {} (id {})", app.auth.ws_name, app.workspace_id)
@@ -43,9 +46,11 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 .add_modifier(Modifier::ITALIC),
         ))
         .alignment(Alignment::Center),
-        rows[1],
+        rows[2],
     );
 
+    // Centre the credentials box horizontally.
+    let form_box = centered_horizontal(rows[4], 48);
     let block = Block::bordered()
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(theme::BORDER))
@@ -53,8 +58,8 @@ pub fn draw(frame: &mut Frame, app: &App) {
             " credentials ",
             Style::default().fg(theme::ACCENT),
         ));
-    let inner = block.inner(rows[2]);
-    frame.render_widget(block, rows[2]);
+    let inner = block.inner(form_box);
+    frame.render_widget(block, form_box);
 
     let mut constraints = vec![Constraint::Length(2)]; // api key
     if !locked {
@@ -106,7 +111,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
     frame.render_widget(
         Paragraph::new(Span::styled(footer, Style::default().fg(theme::MUTED)))
             .alignment(Alignment::Center),
-        rows[3],
+        rows[6],
     );
 }
 
