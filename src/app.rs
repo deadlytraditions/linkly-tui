@@ -320,7 +320,7 @@ impl App {
         self.page = 1;
         self.status = "Loading links…".to_string();
         self.loading = true;
-        self.load_links();
+        self.load_links(1);
         self.load_domains();
         self.load_workspaces();
     }
@@ -349,7 +349,7 @@ impl App {
                     self.sort_desc = self.sort_cursor_desc;
                     self.sort_open = false;
                     self.page = 1;
-                    self.reload("Sorting…");
+                    self.reload("Sorting…", 1);
                 }
                 _ => {}
             }
@@ -362,7 +362,7 @@ impl App {
                     self.search = self.search_input.value().trim().to_string();
                     self.searching = false;
                     self.page = 1;
-                    self.reload("Searching…");
+                    self.reload("Searching…", 1);
                 }
                 KeyCode::Esc => {
                     self.searching = false;
@@ -381,7 +381,7 @@ impl App {
             KeyCode::Up | KeyCode::Char('k') => self.select_prev(),
             KeyCode::Enter => self.open_detail(),
             KeyCode::Char('c') => self.open_create(),
-            KeyCode::Char('r') => self.reload("Refreshing…"),
+            KeyCode::Char('r') => self.reload("Refreshing…", self.page),
             KeyCode::Char('/') => {
                 self.searching = true;
                 self.search_input = Input::new(self.search.clone());
@@ -395,15 +395,14 @@ impl App {
                 self.sort_cursor_desc = self.sort_desc;
             }
             KeyCode::Char('n') => {
+                // Request the next page; the counter only moves once it loads.
                 if self.page < self.total_pages {
-                    self.page += 1;
-                    self.reload("Loading…");
+                    self.reload("Loading…", self.page + 1);
                 }
             }
             KeyCode::Char('p') => {
                 if self.page > 1 {
-                    self.page -= 1;
-                    self.reload("Loading…");
+                    self.reload("Loading…", self.page - 1);
                 }
             }
             _ => {}
@@ -529,7 +528,7 @@ impl App {
     fn exit_detail(&mut self) {
         self.screen = Screen::LinkList;
         self.editor = None;
-        self.reload("Refreshing…");
+        self.reload("Refreshing…", self.page);
     }
 
     fn on_create_key(&mut self, key: KeyEvent) {
@@ -661,21 +660,23 @@ impl App {
         self.list_state.selected().and_then(|i| self.links.get(i))
     }
 
-    fn reload(&mut self, status: &str) {
+    fn reload(&mut self, status: &str, page: i64) {
         self.status = status.to_string();
         self.loading = true;
-        self.load_links();
+        self.load_links(page);
     }
 
     // ------------------------------------------------------------------
     // Async task spawners
     // ------------------------------------------------------------------
 
-    fn load_links(&self) {
+    /// Fetch `page`. The displayed `self.page` is only updated once a response
+    /// actually arrives (see `LinksLoaded`), so a failed request never leaves
+    /// the page counter out of sync with what's on screen.
+    fn load_links(&self, page: i64) {
         let Some(client) = self.client.clone() else { return };
         let tx = self.tx.clone();
         let ws = self.workspace_id;
-        let page = self.page;
         let search = self.search.clone();
         let sort_by = self.sort_field.api_field();
         let sort_dir = if self.sort_desc { "desc" } else { "asc" };
@@ -781,7 +782,7 @@ impl App {
                 self.screen = Screen::LinkList;
                 self.status = "Link created — refreshing…".to_string();
                 self.loading = true;
-                self.load_links();
+                self.load_links(self.page);
             }
             AsyncMsg::LinkUpdated => {
                 self.loading = false;
