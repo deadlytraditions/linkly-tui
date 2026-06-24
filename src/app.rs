@@ -9,7 +9,7 @@ use tui_input::Input;
 
 use crate::api::models::{LinkSummary, ListLinksResponse};
 use crate::api::LinklyClient;
-use crate::forms::{CreateForm, DomainSelector, Field};
+use crate::forms::{CreateForm, DetailMode, DomainSelector, EditKind, Field, LinkEditor};
 
 pub const PAGE_SIZE: i64 = 100;
 
@@ -74,6 +74,7 @@ pub enum AsyncMsg {
     LinkDetailLoaded(Value),
     DomainsLoaded(Vec<String>),
     LinkCreated,
+    LinkUpdated,
     Error(String),
 }
 
@@ -115,9 +116,8 @@ pub struct App {
     pub sort_cursor: usize,
     pub sort_cursor_desc: bool,
 
-    // Detail state.
-    pub detail: Option<Value>,
-    pub detail_scroll: u16,
+    // Detail / edit state.
+    pub editor: Option<LinkEditor>,
 
     // Create state.
     pub create_form: CreateForm,
@@ -156,8 +156,7 @@ impl App {
             sort_open: false,
             sort_cursor: 0,
             sort_cursor_desc: true,
-            detail: None,
-            detail_scroll: 0,
+            editor: None,
             create_form: CreateForm::new(),
             domains: Vec::new(),
             tx,
@@ -303,15 +302,125 @@ impl App {
     }
 
     fn on_detail_key(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Backspace => {
-                self.screen = Screen::LinkList;
-                self.detail = None;
+        // If the record hasn't loaded yet, only allow backing out.
+        let Some(mode) = self.editor.as_ref().map(|e| e.mode) else {
+            if matches!(key.code, KeyCode::Esc | KeyCode::Char('q')) {
+                self.exit_detail();
             }
-            KeyCode::Down | KeyCode::Char('j') => self.detail_scroll = self.detail_scroll.saturating_add(1),
-            KeyCode::Up | KeyCode::Char('k') => self.detail_scroll = self.detail_scroll.saturating_sub(1),
+            return;
+        };
+        match mode {
+            DetailMode::Nav => self.detail_nav_key(key),
+            DetailMode::Edit => self.detail_edit_key(key),
+            DetailMode::ConfirmSave => self.detail_confirm_key(key),
+        }
+    }
+
+    fn detail_nav_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Up | KeyCode::Char('k') => {
+                if let Some(e) = self.editor.as_mut() {
+                    e.move_up();
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if let Some(e) = self.editor.as_mut() {
+                    e.move_down();
+                }
+            }
+            KeyCode::Enter => self.detail_enter(),
+            KeyCode::Char('s') => {
+                if let Some(e) = self.editor.as_mut() {
+                    e.exit_after_save = false;
+                }
+                self.save_edit();
+            }
+            KeyCode::Esc | KeyCode::Char('q') => {
+                let dirty = self.editor.as_ref().is_some_and(LinkEditor::dirty);
+                if dirty {
+                    if let Some(e) = self.editor.as_mut() {
+                        e.mode = DetailMode::ConfirmSave;
+                    }
+                } else {
+                    self.exit_detail();
+                }
+            }
             _ => {}
         }
+    }
+
+    fn detail_enter(&mut self) {
+        let Some(e) = self.editor.as_mut() else { return };
+        match e.current().kind {
+            EditKind::Bool => {
+                let f = e.current_mut();
+                f.bool_val = !f.bool_val;
+            }
+            EditKind::Text => e.mode = DetailMode::Edit,
+        }
+    }
+
+    fn detail_edit_key(&mut self, key: KeyEvent) {
+        let Some(e) = self.editor.as_mut() else { return };
+        match key.code {
+            // Enter and Esc both commit the in-progress edit (the value is
+            // already live in the input) and return to navigation.
+            KeyCode::Enter | KeyCode::Esc => e.mode = DetailMode::Nav,
+            _ => {
+                e.current_mut().input.handle_event(&Event::Key(key));
+            }
+        }
+    }
+
+    fn detail_confirm_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Char('s') | KeyCode::Char('y') => {
+                if let Some(e) = self.editor.as_mut() {
+                    e.exit_after_save = true;
+                }
+                self.save_edit();
+            }
+            KeyCode::Char('d') => self.exit_detail(), // discard changes
+            KeyCode::Esc | KeyCode::Char('n') => {
+                if let Some(e) = self.editor.as_mut() {
+                    e.mode = DetailMode::Nav;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn save_edit(&mut self) {
+        let Some(e) = self.editor.as_ref() else { return };
+        if !e.dirty() {
+            if e.exit_after_save {
+                self.exit_detail();
+            }
+            return;
+        }
+        let Some(client) = self.client.clone() else { return };
+        let body = e.update_body();
+        let tx = self.tx.clone();
+        if let Some(e) = self.editor.as_mut() {
+            e.mode = DetailMode::Nav;
+        }
+        self.status = "Saving link…".to_string();
+        self.loading = true;
+        tokio::spawn(async move {
+            let msg = match client.update_link(body).await {
+                Ok(_) => AsyncMsg::LinkUpdated,
+                Err(e) => AsyncMsg::Error(e.to_string()),
+            };
+            let _ = tx.send(msg);
+        });
+    }
+
+    /// Leave the detail screen and refresh the list (so edits are reflected,
+    /// and the status line no longer shows detail-screen text).
+    fn exit_detail(&mut self) {
+        self.screen = Screen::LinkList;
+        self.editor = None;
+        self.reload("Refreshing…");
     }
 
     fn on_create_key(&mut self, key: KeyEvent) {
@@ -418,8 +527,7 @@ impl App {
         let ws = self.workspace_id;
         let tx = self.tx.clone();
         self.screen = Screen::LinkDetail;
-        self.detail = None;
-        self.detail_scroll = 0;
+        self.editor = None;
         self.status = "Loading link details…".to_string();
         self.loading = true;
         tokio::spawn(async move {
@@ -515,9 +623,9 @@ impl App {
                 }
             }
             AsyncMsg::LinkDetailLoaded(v) => {
-                self.detail = Some(v);
+                self.editor = Some(LinkEditor::from_value(&v, self.workspace_id));
                 self.loading = false;
-                self.status = "Link details".to_string();
+                self.status = String::new();
             }
             AsyncMsg::DomainsLoaded(domains) => {
                 self.domains = domains;
@@ -527,6 +635,22 @@ impl App {
                 self.status = "Link created — refreshing…".to_string();
                 self.loading = true;
                 self.load_links();
+            }
+            AsyncMsg::LinkUpdated => {
+                self.loading = false;
+                // The saved values become the new baseline, so the editor is no
+                // longer "dirty" and Esc won't prompt to save again.
+                let exit = if let Some(e) = self.editor.as_mut() {
+                    e.mark_saved();
+                    e.exit_after_save
+                } else {
+                    false
+                };
+                if exit {
+                    self.exit_detail();
+                } else {
+                    self.status = "Link saved ✓".to_string();
+                }
             }
             AsyncMsg::Error(e) => {
                 self.loading = false;

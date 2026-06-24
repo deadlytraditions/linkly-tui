@@ -73,6 +73,19 @@ impl LinklyClient {
         Ok(resp.json().await.unwrap_or(Value::Null))
     }
 
+    /// Update an existing link. `body` must contain `id` and `workspace_id`
+    /// plus the fields to change. Posts to the same endpoint as create.
+    pub async fn update_link(&self, body: Value) -> Result<Value> {
+        let url = format!("{BASE_URL}/api/v1/link");
+        let req = self
+            .http
+            .post(url)
+            .query(&[("api_key", self.api_key.clone())])
+            .json(&body);
+        let resp = check(req.send().await?).await?;
+        Ok(resp.json().await.unwrap_or(Value::Null))
+    }
+
     /// List the custom domains available in a workspace.
     pub async fn list_domains(&self, workspace_id: i64) -> Result<Vec<String>> {
         let url = format!("{BASE_URL}/api/v1/workspace/{workspace_id}/domains");

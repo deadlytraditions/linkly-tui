@@ -1,97 +1,158 @@
-//! Link detail screen: every populated field, with values aligned in a column.
+//! Link detail / edit screen.
+//!
+//! Fields are shown in a navigable list (the selected line is highlighted and
+//! the list only scrolls to keep it visible). Enter edits the current field;
+//! changed fields are marked and the title shows unsaved state.
 
+use ratatui::layout::{Constraint, Layout};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::Paragraph;
+use ratatui::widgets::{Clear, List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
-use serde_json::Value;
 
 use crate::app::App;
-use crate::ui::{panel, status_bar, theme, with_status_bar};
-
-/// Upper bound on the key column so one very long key can't push every value
-/// far to the right.
-const MAX_KEY_WIDTH: usize = 24;
+use crate::forms::edit_form::{DetailMode, EditField, EditKind, LinkEditor};
+use crate::ui::{centered_rect, panel, status_bar, theme, with_status_bar};
 
 pub fn draw(frame: &mut Frame, app: &App) {
     let (main, status) = with_status_bar(frame.area());
 
-    let title = match app.selected_link().and_then(|l| l.id) {
-        Some(id) => format!("Link #{id}"),
-        None => "Link details".to_string(),
+    let Some(editor) = &app.editor else {
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                "Loading…",
+                Style::default().fg(theme::MUTED),
+            ))
+            .block(panel("Link details")),
+            main,
+        );
+        status_bar(frame, status, app, "Esc back");
+        return;
     };
 
-    let lines = match &app.detail {
-        Some(Value::Object(map)) => render_fields(map),
-        Some(_) => vec![Line::from("Unexpected response shape.")],
-        None => vec![Line::from(Span::styled(
-            "Loading…",
-            Style::default().fg(theme::MUTED),
-        ))],
-    };
-
-    let paragraph = Paragraph::new(lines)
-        .block(panel(&title))
-        .scroll((app.detail_scroll, 0));
-    frame.render_widget(paragraph, main);
-
-    status_bar(frame, status, app, "↑↓ scroll · Esc back");
-}
-
-fn render_fields(map: &serde_json::Map<String, Value>) -> Vec<Line<'static>> {
-    // Collect the non-empty fields first so the column width is based only on
-    // what we actually show.
-    let mut entries: Vec<(&String, &Value)> = map
+    let editing = editor.mode == DetailMode::Edit;
+    let label_width = editor
+        .fields
         .iter()
-        .filter(|(_, v)| !is_empty(v))
-        .collect();
-    entries.sort_by(|a, b| a.0.cmp(b.0));
-
-    let key_width = entries
-        .iter()
-        .map(|(k, _)| k.len())
+        .map(|f| f.label.len())
         .max()
-        .unwrap_or(0)
-        .min(MAX_KEY_WIDTH);
+        .unwrap_or(0);
 
-    entries
-        .into_iter()
-        .map(|(k, v)| {
-            let (value, style) = render_value(v);
-            Line::from(vec![
-                Span::styled(
-                    format!("{k:<key_width$} ", key_width = key_width),
-                    Style::default().fg(theme::ACCENT),
-                ),
-                Span::styled("│ ", Style::default().fg(theme::BORDER)),
-                Span::styled(value, style),
-            ])
-        })
-        .collect()
-}
+    let items: Vec<ListItem> = editor
+        .fields
+        .iter()
+        .enumerate()
+        .map(|(i, f)| field_item(f, label_width, i == editor.cursor && editing))
+        .collect();
 
-fn is_empty(v: &Value) -> bool {
-    match v {
-        Value::Null => true,
-        Value::String(s) => s.is_empty(),
-        Value::Array(a) => a.is_empty(),
-        Value::Object(o) => o.is_empty(),
-        _ => false,
+    let dirty = if editor.dirty() { " · unsaved ●" } else { "" };
+    let title = format!("Link #{} · {}{}", editor.id, editor.full_url, dirty);
+
+    // Highlight is yellow while editing the current line, blue while navigating.
+    let highlight = if editing {
+        Style::default()
+            .bg(Color::Rgb(90, 75, 30))
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+            .bg(theme::SELECT_BG)
+            .add_modifier(Modifier::BOLD)
+    };
+
+    let list = List::new(items)
+        .block(panel(&title))
+        .highlight_style(highlight)
+        .highlight_symbol("▍ ");
+
+    let mut state = ListState::default();
+    state.select(Some(editor.cursor));
+    frame.render_stateful_widget(list, main, &mut state);
+
+    let help = match editor.mode {
+        DetailMode::Nav => "↑↓ move · Enter edit · s save · Esc back",
+        DetailMode::Edit => "type to edit · Enter/Esc done",
+        DetailMode::ConfirmSave => "s save · d discard · Esc cancel",
+    };
+    status_bar(frame, status, app, help);
+
+    if editor.mode == DetailMode::ConfirmSave {
+        render_confirm_popup(frame, editor);
     }
 }
 
-/// Render a JSON value to a single-line string plus a style hint.
-fn render_value(v: &Value) -> (String, Style) {
-    match v {
-        Value::String(s) => (s.clone(), Style::default().fg(Color::White)),
-        Value::Bool(true) => ("true".into(), Style::default().fg(theme::OK)),
-        Value::Bool(false) => ("false".into(), Style::default().fg(theme::MUTED)),
-        Value::Number(n) => (
-            n.to_string(),
-            Style::default()
-                .fg(theme::ACCENT_DIM)
-                .add_modifier(Modifier::BOLD),
+fn field_item<'a>(f: &EditField, label_width: usize, editing: bool) -> ListItem<'a> {
+    let changed = f.changed();
+    let marker = if changed { "*" } else { " " };
+
+    let value_span = match f.kind {
+        EditKind::Bool => {
+            if f.bool_val {
+                Span::styled("◉ on", Style::default().fg(theme::OK))
+            } else {
+                Span::styled("◯ off", Style::default().fg(theme::MUTED))
+            }
+        }
+        EditKind::Text => {
+            let mut v = f.input.value().to_string();
+            if editing {
+                v.push('▏');
+            }
+            let style = if v.is_empty() {
+                Style::default().fg(theme::MUTED)
+            } else if changed {
+                Style::default().fg(Color::Yellow)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            Span::styled(v, style)
+        }
+    };
+
+    ListItem::new(Line::from(vec![
+        Span::styled(
+            format!("{marker} "),
+            Style::default().fg(Color::Yellow),
         ),
-        other => (other.to_string(), Style::default().fg(Color::Gray)),
-    }
+        Span::styled(
+            format!("{:<label_width$}  ", f.label, label_width = label_width),
+            Style::default().fg(theme::ACCENT_DIM),
+        ),
+        value_span,
+    ]))
+}
+
+fn render_confirm_popup(frame: &mut Frame, _editor: &LinkEditor) {
+    let area = centered_rect(46, 28, frame.area());
+    frame.render_widget(Clear, area);
+
+    let block = panel("Unsaved changes");
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let rows = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .horizontal_margin(2)
+    .split(inner);
+
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            "Save your changes before leaving?",
+            Style::default().fg(Color::White),
+        )),
+        rows[0],
+    );
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled("[s]", Style::default().fg(theme::OK)),
+            Span::styled(" save   ", Style::default().fg(theme::MUTED)),
+            Span::styled("[d]", Style::default().fg(theme::ERROR)),
+            Span::styled(" discard   ", Style::default().fg(theme::MUTED)),
+            Span::styled("[Esc]", Style::default().fg(theme::ACCENT)),
+            Span::styled(" cancel", Style::default().fg(theme::MUTED)),
+        ])),
+        rows[2],
+    );
 }
