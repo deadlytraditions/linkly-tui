@@ -37,13 +37,14 @@ custom domain) without leaving the terminal.
   selected field, `Esc` leaves edit mode. Changed fields are marked, and on the
   way out you're asked to save if there are unsaved changes; `s` saves at any
   time. Once saved, the new values are the baseline — leaving no longer prompts.
-- **QR codes** — generate a QR code for a link's short URL: press `Q` in the
-  detail view for the selected link, or `Q` in the list to batch-export QR codes
-  for **every** link in the workspace. Files land in
-  `./linkly-qr/<workspace-id>/`, named by link id + slug. Press `o` to open QR
-  settings: **format** (PNG default, SVG, JPEG), **size**, and **fg/bg colours**
-  — persisted to `~/.config/linkly-tui/qr.json`. (Linkly's API has no QR
-  endpoint; codes are rendered locally from each link's short URL.)
+- **QR codes** — press `Q` to export a QR code for a link's short URL: in the
+  detail view for the selected link, or in the list to batch-export **every**
+  link in the workspace. `Q` opens a dialog to choose **format** (PNG default,
+  SVG, JPEG), **size**, and **fg/bg colours** before exporting (`Enter` to
+  export, `Esc` to cancel). Files land in `./linkly-qr/<workspace-id>/`, named by
+  link id + slug. Choices persist to `~/.config/linkly-tui/qr.json`; press `o` to
+  edit those defaults without exporting. (Linkly's API has no QR endpoint; codes
+  are rendered locally from each link's short URL.)
 - **Create links** — a form exposing the full Linkly option set. Core fields are
   always visible; `Ctrl-A` reveals advanced fields (OG tags, UTM parameters,
   tracking pixels, cloaking, bot-blocking, custom head/body tags, …). The custom
@@ -107,8 +108,8 @@ stored for it. Deleting the file removes everything.
 | Workspaces | `↑/↓` select · `Enter` continue · `d` forget (+ stored key) · `Esc`/`q` quit |
 | Sign in | `Tab` switch field · `Enter` continue · `Esc` back/quit |
 | Store key? | `s` store · `n`/`Esc` not now |
-| List    | `↑/↓` move · `Enter` details · `c` create · `Q` export QR (workspace) · `o` QR settings · `/` search · `s` sort · `n`/`p` page · `r` refresh · `Esc` workspaces · `q` quit |
-| QR settings | `↑/↓` field · `←/→` format · type to edit size/colours · `Enter`/`Esc` save |
+| List    | `↑/↓` move · `Enter` details · `c` create · `Q` export QR (workspace) · `o` QR defaults · `/` search · `s` sort · `n`/`p` page · `r` refresh · `Esc` workspaces · `q` quit |
+| QR dialog | `↑/↓` field · `←/→` format · type to edit size/colours · `Enter` export/save · `Esc` cancel |
 | Sort    | `↑/↓` field · `d`/`←→` direction · `Enter` apply · `Esc` cancel |
 | Detail  | `↑/↓` move field · `Enter` edit / toggle · `s` save · `Q` export QR · `Esc` back (prompts if unsaved) |
 | Editing | type to edit · `Enter`/`Esc` finish editing the field |

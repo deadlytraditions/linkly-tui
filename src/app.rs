@@ -82,6 +82,21 @@ pub enum AsyncMsg {
     Error(String),
 }
 
+/// A link captured for single QR export (so the dialog can render the chosen
+/// format before writing).
+pub struct QrSingle {
+    pub id: Option<i64>,
+    pub slug: Option<String>,
+    pub name: Option<String>,
+    pub url: String,
+}
+
+/// What the QR dialog should export when confirmed (`None` = just edit settings).
+pub enum QrExportTarget {
+    Single(QrSingle),
+    Workspace,
+}
+
 /// The credential prompt shown on startup.
 #[derive(Default)]
 pub struct AuthState {
@@ -128,6 +143,8 @@ pub struct App {
     pub qr_size_input: Input,
     pub qr_fg_input: Input,
     pub qr_bg_input: Input,
+    /// What to export once the QR dialog is confirmed (`None` = settings only).
+    qr_pending: Option<QrExportTarget>,
 
     // Link list state.
     pub links: Vec<LinkSummary>,
@@ -196,6 +213,7 @@ impl App {
             qr_size_input: Input::default(),
             qr_fg_input: Input::default(),
             qr_bg_input: Input::default(),
+            qr_pending: None,
             links: Vec::new(),
             list_state: TableState::default(),
             page: 1,
@@ -222,6 +240,11 @@ impl App {
 
     pub fn on_event(&mut self, event: Event) {
         let Event::Key(key) = event else { return };
+        // The QR dialog is a global overlay; handle it on any screen.
+        if self.qr_settings_open {
+            self.on_qr_settings_key(key);
+            return;
+        }
         match self.screen {
             Screen::WorkspacePicker => self.on_picker_key(key),
             Screen::Auth => self.on_auth_key(key),
@@ -380,41 +403,6 @@ impl App {
             return;
         }
 
-        // QR settings popup.
-        if self.qr_settings_open {
-            let fields = 4;
-            match key.code {
-                KeyCode::Esc | KeyCode::Enter => self.commit_qr_settings(),
-                KeyCode::Up | KeyCode::BackTab => {
-                    self.qr_form_focus = (self.qr_form_focus + fields - 1) % fields;
-                }
-                KeyCode::Down | KeyCode::Tab => {
-                    self.qr_form_focus = (self.qr_form_focus + 1) % fields;
-                }
-                KeyCode::Left | KeyCode::Char('h') if self.qr_form_focus == 0 => {
-                    self.qr_settings.format = self.qr_settings.format.prev();
-                }
-                KeyCode::Right | KeyCode::Char('l') | KeyCode::Char(' ')
-                    if self.qr_form_focus == 0 =>
-                {
-                    self.qr_settings.format = self.qr_settings.format.next();
-                }
-                _ => match self.qr_form_focus {
-                    1 => {
-                        self.qr_size_input.handle_event(&Event::Key(key));
-                    }
-                    2 => {
-                        self.qr_fg_input.handle_event(&Event::Key(key));
-                    }
-                    3 => {
-                        self.qr_bg_input.handle_event(&Event::Key(key));
-                    }
-                    _ => {}
-                },
-            }
-            return;
-        }
-
         // Sort picker popup takes precedence.
         if self.sort_open {
             match key.code {
@@ -475,8 +463,8 @@ impl App {
             KeyCode::Up | KeyCode::Char('k') => self.select_prev(),
             KeyCode::Enter => self.open_detail(),
             KeyCode::Char('c') => self.open_create(),
-            KeyCode::Char('Q') => self.export_workspace_qr(),
-            KeyCode::Char('o') => self.open_qr_settings(),
+            KeyCode::Char('Q') => self.open_qr_settings(Some(QrExportTarget::Workspace)),
+            KeyCode::Char('o') => self.open_qr_settings(None),
             KeyCode::Char('r') => self.reload("Refreshing…", self.page),
             KeyCode::Char('/') => {
                 self.searching = true;
@@ -533,7 +521,7 @@ impl App {
                 }
             }
             KeyCode::Enter => self.detail_enter(),
-            KeyCode::Char('Q') => self.export_current_qr(),
+            KeyCode::Char('Q') => self.begin_export_current_qr(),
             KeyCode::Char('s') => {
                 if let Some(e) = self.editor.as_mut() {
                     e.exit_after_save = false;
@@ -800,22 +788,73 @@ impl App {
         });
     }
 
-    /// Save a QR code for the currently open link (detail screen).
-    fn export_current_qr(&mut self) {
+    /// Open the QR dialog to export the currently selected/open link.
+    fn begin_export_current_qr(&mut self) {
         let Some(link) = self.selected_link() else { return };
-        let url = link.full_url.clone();
-        let fname = crate::qr::file_name(
-            link.id,
-            link.slug.as_deref(),
-            link.name.as_deref(),
-            self.qr_settings.format,
-        );
-        let Some(url) = url.filter(|u| !u.is_empty()) else {
+        let Some(url) = link.full_url.clone().filter(|u| !u.is_empty()) else {
             self.status = "No short URL to encode for this link".to_string();
             return;
         };
+        let target = QrExportTarget::Single(QrSingle {
+            id: link.id,
+            slug: link.slug.clone(),
+            name: link.name.clone(),
+            url,
+        });
+        self.open_qr_settings(Some(target));
+    }
+
+    /// Label for the pending export (used by the dialog), if any.
+    pub fn qr_export_label(&self) -> Option<&'static str> {
+        match self.qr_pending {
+            Some(QrExportTarget::Single(_)) => Some("link"),
+            Some(QrExportTarget::Workspace) => Some("workspace"),
+            None => None,
+        }
+    }
+
+    fn on_qr_settings_key(&mut self, key: KeyEvent) {
+        let fields = 4;
+        match key.code {
+            KeyCode::Enter => self.commit_qr_settings(true),
+            KeyCode::Esc => self.commit_qr_settings(false),
+            KeyCode::Up | KeyCode::BackTab => {
+                self.qr_form_focus = (self.qr_form_focus + fields - 1) % fields;
+            }
+            KeyCode::Down | KeyCode::Tab => {
+                self.qr_form_focus = (self.qr_form_focus + 1) % fields;
+            }
+            KeyCode::Left | KeyCode::Char('h') if self.qr_form_focus == 0 => {
+                self.qr_settings.format = self.qr_settings.format.prev();
+            }
+            KeyCode::Right | KeyCode::Char('l') | KeyCode::Char(' ') if self.qr_form_focus == 0 => {
+                self.qr_settings.format = self.qr_settings.format.next();
+            }
+            _ => match self.qr_form_focus {
+                1 => {
+                    self.qr_size_input.handle_event(&Event::Key(key));
+                }
+                2 => {
+                    self.qr_fg_input.handle_event(&Event::Key(key));
+                }
+                3 => {
+                    self.qr_bg_input.handle_event(&Event::Key(key));
+                }
+                _ => {}
+            },
+        }
+    }
+
+    /// Write a single QR for a captured link using the current settings.
+    fn export_single_qr(&mut self, s: &QrSingle) {
+        let fname = crate::qr::file_name(
+            s.id,
+            s.slug.as_deref(),
+            s.name.as_deref(),
+            self.qr_settings.format,
+        );
         let path = crate::qr::output_dir(self.workspace_id).join(fname);
-        match crate::qr::write_qr(&url, &path, &self.qr_settings) {
+        match crate::qr::write_qr(&s.url, &path, &self.qr_settings) {
             Ok(()) => self.status = format!("Saved QR to {}", path.display()),
             Err(e) => self.status = format!("Error: {e}"),
         }
@@ -839,7 +878,8 @@ impl App {
         });
     }
 
-    fn open_qr_settings(&mut self) {
+    fn open_qr_settings(&mut self, pending: Option<QrExportTarget>) {
+        self.qr_pending = pending;
         self.qr_form_focus = 0;
         self.qr_size_input = Input::new(self.qr_settings.size.to_string());
         self.qr_fg_input = Input::new(self.qr_settings.fg.clone());
@@ -847,7 +887,17 @@ impl App {
         self.qr_settings_open = true;
     }
 
-    fn commit_qr_settings(&mut self) {
+    /// Close the QR dialog. When `confirmed`, persist the settings and run the
+    /// pending export; when cancelled (Esc), do neither.
+    fn commit_qr_settings(&mut self, confirmed: bool) {
+        self.qr_settings_open = false;
+        let pending = self.qr_pending.take();
+
+        if !confirmed {
+            self.status = "QR export cancelled".to_string();
+            return;
+        }
+
         if let Ok(sz) = self.qr_size_input.value().trim().parse::<u32>() {
             self.qr_settings.size = sz.clamp(64, 4096);
         }
@@ -858,14 +908,20 @@ impl App {
             self.qr_settings.bg = c;
         }
         crate::config::save_qr_settings(&self.qr_settings);
-        self.qr_settings_open = false;
-        self.status = format!(
-            "QR settings saved · {} · {}px · {} on {}",
-            self.qr_settings.format.label(),
-            self.qr_settings.size,
-            self.qr_settings.fg,
-            self.qr_settings.bg,
-        );
+
+        match pending {
+            Some(QrExportTarget::Single(s)) => self.export_single_qr(&s),
+            Some(QrExportTarget::Workspace) => self.export_workspace_qr(),
+            None => {
+                self.status = format!(
+                    "QR settings saved · {} · {}px · {} on {}",
+                    self.qr_settings.format.label(),
+                    self.qr_settings.size,
+                    self.qr_settings.fg,
+                    self.qr_settings.bg,
+                );
+            }
+        }
     }
 
     fn load_workspaces(&self) {
