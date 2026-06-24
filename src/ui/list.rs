@@ -7,7 +7,7 @@ use ratatui::widgets::{Cell, Clear, List, ListItem, ListState, Paragraph, Row, T
 use ratatui::Frame;
 
 use crate::app::{App, SortField};
-use crate::ui::{centered_rect, panel, status_bar, theme, with_status_bar};
+use crate::ui::{centered_rect, input_spans, panel, status_bar, theme, with_status_bar};
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
     let (main, status) = with_status_bar(frame.area());
@@ -170,9 +170,14 @@ fn render_sort_popup(frame: &mut Frame, app: &App) {
 }
 
 fn render_search(frame: &mut Frame, area: Rect, app: &App) {
-    let line = Paragraph::new(Span::styled(
-        format!(" search ▍ {}▏", app.search_input.value()),
+    let mut spans = vec![Span::styled(
+        " search ▍ ",
+        Style::default().fg(theme::MUTED),
+    )];
+    spans.extend(input_spans(
+        &app.search_input,
+        false,
         Style::default().fg(Color::Yellow),
     ));
-    frame.render_widget(line, area);
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }

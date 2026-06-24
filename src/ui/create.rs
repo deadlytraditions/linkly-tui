@@ -7,7 +7,7 @@ use ratatui::Frame;
 
 use crate::app::App;
 use crate::forms::{CreateForm, Field};
-use crate::ui::{centered_rect, panel, status_bar, theme, with_status_bar};
+use crate::ui::{centered_rect, input_spans, panel, status_bar, theme, with_status_bar};
 
 /// Width the field labels are padded to, so all values line up.
 const LABEL_WIDTH: usize = 16;
@@ -92,41 +92,44 @@ fn field_item<'a>(form: &CreateForm, f: Field, focused: bool) -> ListItem<'a> {
     let label = CreateForm::label(f);
     let pointer = if focused { "▍ " } else { "  " };
 
-    let value_span = match f {
-        Field::Domain => Span::styled(
+    let value_spans: Vec<Span> = match f {
+        Field::Domain => vec![Span::styled(
             form.domain_display(),
             Style::default().fg(theme::ACCENT),
-        ),
+        )],
         _ if form.bool_value(f).is_some() => {
-            let on = form.bool_value(f).unwrap();
-            if on {
-                Span::styled("◉ on", Style::default().fg(theme::OK))
+            if form.bool_value(f).unwrap() {
+                vec![Span::styled("◉ on", Style::default().fg(theme::OK))]
             } else {
-                Span::styled("◯ off", Style::default().fg(theme::MUTED))
+                vec![Span::styled("◯ off", Style::default().fg(theme::MUTED))]
             }
         }
         _ => {
-            let mut v = form.input(f).map(|i| i.value().to_string()).unwrap_or_default();
-            if focused {
-                v.push('▏');
+            let input = form.input(f);
+            match input {
+                // Focused text field: draw a real caret.
+                Some(i) if focused => input_spans(i, false, Style::default().fg(Color::White)),
+                Some(i) if i.value().is_empty() => {
+                    vec![Span::styled("", Style::default().fg(theme::MUTED))]
+                }
+                Some(i) => vec![Span::styled(
+                    i.value().to_string(),
+                    Style::default().fg(Color::White),
+                )],
+                None => vec![],
             }
-            let style = if v.is_empty() {
-                Style::default().fg(theme::MUTED)
-            } else {
-                Style::default().fg(Color::White)
-            };
-            Span::styled(v, style)
         }
     };
 
-    ListItem::new(Line::from(vec![
+    let mut spans = vec![
         Span::styled(pointer, Style::default().fg(theme::ACCENT)),
         Span::styled(
             format!("{label:<LABEL_WIDTH$}"),
             Style::default().fg(theme::ACCENT_DIM),
         ),
-        value_span,
-    ]))
+    ];
+    spans.extend(value_spans);
+    ListItem::new(Line::from(spans))
 }
 
 fn render_domain_selector(frame: &mut Frame, app: &mut App) {

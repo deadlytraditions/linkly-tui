@@ -12,7 +12,7 @@ use ratatui::Frame;
 
 use crate::app::App;
 use crate::forms::edit_form::{DetailMode, EditField, EditKind, LinkEditor};
-use crate::ui::{centered_rect, panel, status_bar, theme, with_status_bar};
+use crate::ui::{centered_rect, input_spans, panel, status_bar, theme, with_status_bar};
 
 pub fn draw(frame: &mut Frame, app: &App) {
     let (main, status) = with_status_bar(frame.area());
@@ -84,41 +84,37 @@ fn field_item<'a>(f: &EditField, label_width: usize, editing: bool) -> ListItem<
     let changed = f.changed();
     let marker = if changed { "*" } else { " " };
 
-    let value_span = match f.kind {
-        EditKind::Bool => {
-            if f.bool_val {
-                Span::styled("◉ on", Style::default().fg(theme::OK))
-            } else {
-                Span::styled("◯ off", Style::default().fg(theme::MUTED))
-            }
-        }
-        EditKind::Text => {
-            let mut v = f.input.value().to_string();
-            if editing {
-                v.push('▏');
-            }
-            let style = if v.is_empty() {
-                Style::default().fg(theme::MUTED)
-            } else if changed {
-                Style::default().fg(Color::Yellow)
-            } else {
-                Style::default().fg(Color::White)
-            };
-            Span::styled(v, style)
-        }
+    let base = if changed {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default().fg(Color::White)
     };
 
-    ListItem::new(Line::from(vec![
-        Span::styled(
-            format!("{marker} "),
-            Style::default().fg(Color::Yellow),
-        ),
+    let value_spans: Vec<Span> = match f.kind {
+        EditKind::Bool => {
+            if f.bool_val {
+                vec![Span::styled("◉ on", Style::default().fg(theme::OK))]
+            } else {
+                vec![Span::styled("◯ off", Style::default().fg(theme::MUTED))]
+            }
+        }
+        // Field being edited: draw a real caret at the cursor position.
+        EditKind::Text if editing => input_spans(&f.input, false, base),
+        EditKind::Text if f.input.value().is_empty() => {
+            vec![Span::styled("—", Style::default().fg(theme::MUTED))]
+        }
+        EditKind::Text => vec![Span::styled(f.input.value().to_string(), base)],
+    };
+
+    let mut spans = vec![
+        Span::styled(format!("{marker} "), Style::default().fg(Color::Yellow)),
         Span::styled(
             format!("{:<label_width$}  ", f.label, label_width = label_width),
             Style::default().fg(theme::ACCENT_DIM),
         ),
-        value_span,
-    ]))
+    ];
+    spans.extend(value_spans);
+    ListItem::new(Line::from(spans))
 }
 
 fn render_confirm_popup(frame: &mut Frame, _editor: &LinkEditor) {

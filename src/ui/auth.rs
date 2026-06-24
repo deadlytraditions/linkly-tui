@@ -7,8 +7,10 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Paragraph};
 use ratatui::Frame;
 
+use tui_input::Input;
+
 use crate::app::App;
-use crate::ui::{centered_rect, render_banner, theme, BANNER};
+use crate::ui::{centered_rect, input_spans, render_banner, theme, BANNER};
 
 pub fn draw(frame: &mut Frame, app: &App) {
     let area = centered_rect(64, 90, frame.area());
@@ -63,12 +65,12 @@ pub fn draw(frame: &mut Frame, app: &App) {
         .horizontal_margin(2)
         .split(inner);
 
-    let key_len = app.auth.api_key.value().chars().count();
     field(
         frame,
         form[0],
         "API key",
-        &"•".repeat(key_len),
+        &app.auth.api_key,
+        true,
         app.auth.focus == 0,
     );
 
@@ -79,7 +81,8 @@ pub fn draw(frame: &mut Frame, app: &App) {
             frame,
             form[1],
             "Workspace ID",
-            app.auth.workspace_id.value(),
+            &app.auth.workspace_id,
+            false,
             app.auth.focus == 1,
         );
         form[2]
@@ -107,7 +110,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
     );
 }
 
-fn field(frame: &mut Frame, area: Rect, label: &str, value: &str, focused: bool) {
+fn field(frame: &mut Frame, area: Rect, label: &str, input: &Input, masked: bool, focused: bool) {
     let (marker, label_style, value_style) = if focused {
         (
             "▍ ",
@@ -123,17 +126,25 @@ fn field(frame: &mut Frame, area: Rect, label: &str, value: &str, focused: bool)
             Style::default().fg(Color::Gray),
         )
     };
-    let cursor = if focused { "▏" } else { "" };
+
+    let mut value_spans = vec![Span::raw("  ")];
+    if focused {
+        value_spans.extend(input_spans(input, masked, value_style));
+    } else {
+        let v = if masked {
+            "•".repeat(input.value().chars().count())
+        } else {
+            input.value().to_string()
+        };
+        value_spans.push(Span::styled(v, value_style));
+    }
+
     let lines = vec![
         Line::from(vec![
             Span::styled(marker, Style::default().fg(theme::ACCENT)),
             Span::styled(label.to_string(), label_style),
         ]),
-        Line::from(vec![
-            Span::raw("  "),
-            Span::styled(value.to_string(), value_style),
-            Span::styled(cursor, Style::default().fg(theme::ACCENT)),
-        ]),
+        Line::from(value_spans),
     ];
     frame.render_widget(Paragraph::new(lines), area);
 }

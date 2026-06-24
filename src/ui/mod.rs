@@ -7,10 +7,11 @@ mod list;
 mod workspace;
 
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
+use tui_input::Input;
 
 use crate::app::{App, Screen};
 
@@ -110,6 +111,42 @@ pub fn panel(title: &str) -> ratatui::widgets::Block<'static> {
                 .fg(theme::ACCENT)
                 .add_modifier(Modifier::BOLD),
         ))
+}
+
+/// Render an editable text input as spans, drawing a block cursor at the real
+/// caret position so it's always clear where typing lands — even when the caret
+/// is in the middle of the text. Works inside scrolling lists (no screen-coord
+/// maths needed). When `masked`, characters are shown as bullets.
+pub fn input_spans(input: &Input, masked: bool, base: Style) -> Vec<Span<'static>> {
+    let value: String = if masked {
+        "•".repeat(input.value().chars().count())
+    } else {
+        input.value().to_string()
+    };
+    let chars: Vec<char> = value.chars().collect();
+    let cursor = input.visual_cursor().min(chars.len());
+    let cursor_style = Style::default()
+        .fg(Color::Black)
+        .bg(Color::White)
+        .add_modifier(Modifier::BOLD);
+
+    let mut spans = Vec::new();
+    let before: String = chars[..cursor].iter().collect();
+    if !before.is_empty() {
+        spans.push(Span::styled(before, base));
+    }
+    if cursor < chars.len() {
+        let at: String = chars[cursor..=cursor].iter().collect();
+        spans.push(Span::styled(at, cursor_style));
+        let after: String = chars[cursor + 1..].iter().collect();
+        if !after.is_empty() {
+            spans.push(Span::styled(after, base));
+        }
+    } else {
+        // Caret at end of text: a block over a trailing space.
+        spans.push(Span::styled(" ".to_string(), cursor_style));
+    }
+    spans
 }
 
 /// Centred rectangle occupying the given percentage of `area`.
