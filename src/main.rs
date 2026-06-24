@@ -4,6 +4,7 @@ mod api;
 mod app;
 mod config;
 mod forms;
+mod qr;
 mod ui;
 
 use anyhow::Result;

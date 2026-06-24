@@ -17,3 +17,6 @@
 
 # API reference docs (kept locally, not tracked)
 api-1.json
+
+# Generated QR codes
+/linkly-qr

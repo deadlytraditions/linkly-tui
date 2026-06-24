@@ -78,6 +78,7 @@ pub enum AsyncMsg {
     LinkCreated,
     LinkUpdated,
     WorkspacesLoaded(Vec<Workspace>),
+    QrExported { count: usize, dir: String },
     Error(String),
 }
 
@@ -425,6 +426,7 @@ impl App {
             KeyCode::Up | KeyCode::Char('k') => self.select_prev(),
             KeyCode::Enter => self.open_detail(),
             KeyCode::Char('c') => self.open_create(),
+            KeyCode::Char('Q') => self.export_workspace_qr(),
             KeyCode::Char('r') => self.reload("Refreshing…", self.page),
             KeyCode::Char('/') => {
                 self.searching = true;
@@ -481,6 +483,7 @@ impl App {
                 }
             }
             KeyCode::Enter => self.detail_enter(),
+            KeyCode::Char('Q') => self.export_current_qr(),
             KeyCode::Char('s') => {
                 if let Some(e) = self.editor.as_mut() {
                     e.exit_after_save = false;
@@ -747,6 +750,39 @@ impl App {
         });
     }
 
+    /// Save a QR code for the currently open link (detail screen).
+    fn export_current_qr(&mut self) {
+        let Some(link) = self.selected_link() else { return };
+        let url = link.full_url.clone();
+        let fname = crate::qr::file_name(link.id, link.slug.as_deref(), link.name.as_deref());
+        let Some(url) = url.filter(|u| !u.is_empty()) else {
+            self.status = "No short URL to encode for this link".to_string();
+            return;
+        };
+        let path = crate::qr::output_dir().join(fname);
+        match crate::qr::write_qr(&url, &path) {
+            Ok(()) => self.status = format!("Saved QR to {}", path.display()),
+            Err(e) => self.status = format!("Error: {e}"),
+        }
+    }
+
+    /// Export QR codes for every link in the workspace (paging through all of
+    /// them) on a background task.
+    fn export_workspace_qr(&mut self) {
+        let Some(client) = self.client.clone() else { return };
+        let tx = self.tx.clone();
+        let ws = self.workspace_id;
+        let search = self.search.clone();
+        let sort_by = self.sort_field.api_field().to_string();
+        let sort_dir = if self.sort_desc { "desc" } else { "asc" }.to_string();
+        self.status = "Exporting QR codes…".to_string();
+        self.loading = true;
+        tokio::spawn(async move {
+            let msg = export_all_qr(&client, ws, &search, &sort_by, &sort_dir).await;
+            let _ = tx.send(msg);
+        });
+    }
+
     fn load_workspaces(&self) {
         let Some(client) = self.client.clone() else { return };
         let tx = self.tx.clone();
@@ -888,6 +924,10 @@ impl App {
                     self.status = "Link saved ✓".to_string();
                 }
             }
+            AsyncMsg::QrExported { count, dir } => {
+                self.loading = false;
+                self.status = format!("Exported {count} QR code(s) to {dir}/");
+            }
             AsyncMsg::Error(e) => {
                 self.loading = false;
                 if self.screen == Screen::Auth {
@@ -896,5 +936,43 @@ impl App {
                 self.status = format!("Error: {e}");
             }
         }
+    }
+}
+
+/// Page through every link in the workspace and write a QR PNG for each.
+async fn export_all_qr(
+    client: &LinklyClient,
+    workspace_id: i64,
+    search: &str,
+    sort_by: &str,
+    sort_dir: &str,
+) -> AsyncMsg {
+    let dir = crate::qr::output_dir();
+    let mut count = 0usize;
+    let mut page = 1i64;
+    loop {
+        let resp = match client
+            .list_links(workspace_id, page, PAGE_SIZE, search, sort_by, sort_dir)
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => return AsyncMsg::Error(format!("QR export failed: {e}")),
+        };
+        for l in &resp.links {
+            if let Some(url) = l.full_url.as_deref().filter(|u| !u.is_empty()) {
+                let fname = crate::qr::file_name(l.id, l.slug.as_deref(), l.name.as_deref());
+                if crate::qr::write_qr(url, &dir.join(fname)).is_ok() {
+                    count += 1;
+                }
+            }
+        }
+        if page >= resp.total_pages.max(1) {
+            break;
+        }
+        page += 1;
+    }
+    AsyncMsg::QrExported {
+        count,
+        dir: dir.display().to_string(),
     }
 }

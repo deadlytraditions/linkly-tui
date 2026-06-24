@@ -69,7 +69,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
     frame.render_stateful_widget(list, main, &mut state);
 
     let help = match editor.mode {
-        DetailMode::Nav => "↑↓ move · Enter edit · s save · Esc back",
+        DetailMode::Nav => "↑↓ move · Enter edit · s save · Q export QR · Esc back",
         DetailMode::Edit => "type to edit · Enter/Esc done",
         DetailMode::ConfirmSave => "s save · d discard · Esc cancel",
     };

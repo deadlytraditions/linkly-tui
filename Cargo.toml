@@ -15,4 +15,6 @@ tui-input = "0.11"
 anyhow = "1"
 # csv is unused today; it locks in the dependency for the planned CSV batch importer.
 csv = "1"
+qrcode = "0.14"
+image = { version = "0.25", default-features = false, features = ["png"] }
 futures = "0.3"
