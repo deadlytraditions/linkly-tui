@@ -124,7 +124,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         frame,
         status,
         app,
-        "↑↓ move · Enter details · c create · Q export QR · / search · s sort · n/p page · r refresh · Esc workspaces · q quit",
+        "↑↓ move · Enter details · c create · Q export QR · o QR settings · / search · s sort · n/p page · r refresh · Esc workspaces · q quit",
     );
 
     if app.sort_open {
@@ -133,6 +133,91 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     if app.store_prompt {
         render_store_prompt(frame, app);
     }
+    if app.qr_settings_open {
+        render_qr_settings(frame, app);
+    }
+}
+
+fn render_qr_settings(frame: &mut Frame, app: &App) {
+    let area = centered_rect(50, 45, frame.area());
+    frame.render_widget(Clear, area);
+
+    let block = panel("QR export settings");
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let rows = Layout::vertical([
+        Constraint::Length(1), // format
+        Constraint::Length(1), // size
+        Constraint::Length(1), // fg
+        Constraint::Length(1), // bg
+        Constraint::Min(0),    // spacer
+        Constraint::Length(1), // hint
+    ])
+    .horizontal_margin(2)
+    .split(inner);
+
+    let label = |text: &str, focused: bool| {
+        let style = if focused {
+            Style::default()
+                .fg(theme::ACCENT)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(theme::ACCENT_DIM)
+        };
+        Span::styled(format!("{:<8}", format!("{text}:")), style)
+    };
+    let pointer = |focused: bool| {
+        if focused {
+            Span::styled("▍ ", Style::default().fg(theme::ACCENT))
+        } else {
+            Span::raw("  ")
+        }
+    };
+
+    // Format (cycled, not typed).
+    let f0 = app.qr_form_focus == 0;
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            pointer(f0),
+            label("Format", f0),
+            Span::styled(
+                format!("‹ {} ›", app.qr_settings.format.label()),
+                Style::default().fg(Color::White),
+            ),
+        ])),
+        rows[0],
+    );
+
+    // Text fields.
+    for (i, (text, input)) in [
+        ("Size", &app.qr_size_input),
+        ("Fg", &app.qr_fg_input),
+        ("Bg", &app.qr_bg_input),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let focus = app.qr_form_focus == i + 1;
+        let mut spans = vec![pointer(focus), label(text, focus)];
+        if focus {
+            spans.extend(input_spans(input, false, Style::default().fg(Color::White)));
+        } else {
+            spans.push(Span::styled(
+                input.value().to_string(),
+                Style::default().fg(Color::Gray),
+            ));
+        }
+        frame.render_widget(Paragraph::new(Line::from(spans)), rows[i + 1]);
+    }
+
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            "↑↓ field · ←→ format · type to edit · Enter/Esc save",
+            Style::default().fg(theme::MUTED),
+        )),
+        rows[5],
+    );
 }
 
 fn render_store_prompt(frame: &mut Frame, app: &App) {

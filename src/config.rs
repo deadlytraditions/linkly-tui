@@ -29,12 +29,39 @@ pub fn env_prefill() -> (String, String) {
     )
 }
 
-/// `~/.config/linkly-tui/workspaces.json` (honouring `XDG_CONFIG_HOME`).
-pub fn cache_path() -> Option<PathBuf> {
+/// The config directory: `~/.config/linkly-tui` (honouring `XDG_CONFIG_HOME`).
+fn config_dir() -> Option<PathBuf> {
     let base = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
-    Some(base.join("linkly-tui").join("workspaces.json"))
+    Some(base.join("linkly-tui"))
+}
+
+/// `~/.config/linkly-tui/workspaces.json` (honouring `XDG_CONFIG_HOME`).
+pub fn cache_path() -> Option<PathBuf> {
+    config_dir().map(|d| d.join("workspaces.json"))
+}
+
+/// Load persisted QR export settings, falling back to defaults.
+pub fn load_qr_settings() -> crate::qr::QrSettings {
+    config_dir()
+        .map(|d| d.join("qr.json"))
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+/// Persist QR export settings (best-effort).
+pub fn save_qr_settings(settings: &crate::qr::QrSettings) {
+    let Some(path) = config_dir().map(|d| d.join("qr.json")) else {
+        return;
+    };
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Ok(data) = serde_json::to_string_pretty(settings) {
+        let _ = std::fs::write(path, data);
+    }
 }
 
 /// Load cached workspaces. Any error (missing/corrupt file) yields an empty list.

@@ -121,6 +121,14 @@ pub struct App {
     /// Whether the "store this API key?" prompt is showing.
     pub store_prompt: bool,
 
+    // QR export settings + editor popup.
+    pub qr_settings: crate::qr::QrSettings,
+    pub qr_settings_open: bool,
+    pub qr_form_focus: usize,
+    pub qr_size_input: Input,
+    pub qr_fg_input: Input,
+    pub qr_bg_input: Input,
+
     // Link list state.
     pub links: Vec<LinkSummary>,
     pub list_state: TableState,
@@ -182,6 +190,12 @@ impl App {
             verify_pending: false,
             pending_ws_name: None,
             store_prompt: false,
+            qr_settings: crate::config::load_qr_settings(),
+            qr_settings_open: false,
+            qr_form_focus: 0,
+            qr_size_input: Input::default(),
+            qr_fg_input: Input::default(),
+            qr_bg_input: Input::default(),
             links: Vec::new(),
             list_state: TableState::default(),
             page: 1,
@@ -366,6 +380,41 @@ impl App {
             return;
         }
 
+        // QR settings popup.
+        if self.qr_settings_open {
+            let fields = 4;
+            match key.code {
+                KeyCode::Esc | KeyCode::Enter => self.commit_qr_settings(),
+                KeyCode::Up | KeyCode::BackTab => {
+                    self.qr_form_focus = (self.qr_form_focus + fields - 1) % fields;
+                }
+                KeyCode::Down | KeyCode::Tab => {
+                    self.qr_form_focus = (self.qr_form_focus + 1) % fields;
+                }
+                KeyCode::Left | KeyCode::Char('h') if self.qr_form_focus == 0 => {
+                    self.qr_settings.format = self.qr_settings.format.prev();
+                }
+                KeyCode::Right | KeyCode::Char('l') | KeyCode::Char(' ')
+                    if self.qr_form_focus == 0 =>
+                {
+                    self.qr_settings.format = self.qr_settings.format.next();
+                }
+                _ => match self.qr_form_focus {
+                    1 => {
+                        self.qr_size_input.handle_event(&Event::Key(key));
+                    }
+                    2 => {
+                        self.qr_fg_input.handle_event(&Event::Key(key));
+                    }
+                    3 => {
+                        self.qr_bg_input.handle_event(&Event::Key(key));
+                    }
+                    _ => {}
+                },
+            }
+            return;
+        }
+
         // Sort picker popup takes precedence.
         if self.sort_open {
             match key.code {
@@ -427,6 +476,7 @@ impl App {
             KeyCode::Enter => self.open_detail(),
             KeyCode::Char('c') => self.open_create(),
             KeyCode::Char('Q') => self.export_workspace_qr(),
+            KeyCode::Char('o') => self.open_qr_settings(),
             KeyCode::Char('r') => self.reload("Refreshing…", self.page),
             KeyCode::Char('/') => {
                 self.searching = true;
@@ -754,13 +804,18 @@ impl App {
     fn export_current_qr(&mut self) {
         let Some(link) = self.selected_link() else { return };
         let url = link.full_url.clone();
-        let fname = crate::qr::file_name(link.id, link.slug.as_deref(), link.name.as_deref());
+        let fname = crate::qr::file_name(
+            link.id,
+            link.slug.as_deref(),
+            link.name.as_deref(),
+            self.qr_settings.format,
+        );
         let Some(url) = url.filter(|u| !u.is_empty()) else {
             self.status = "No short URL to encode for this link".to_string();
             return;
         };
-        let path = crate::qr::output_dir().join(fname);
-        match crate::qr::write_qr(&url, &path) {
+        let path = crate::qr::output_dir(self.workspace_id).join(fname);
+        match crate::qr::write_qr(&url, &path, &self.qr_settings) {
             Ok(()) => self.status = format!("Saved QR to {}", path.display()),
             Err(e) => self.status = format!("Error: {e}"),
         }
@@ -775,12 +830,42 @@ impl App {
         let search = self.search.clone();
         let sort_by = self.sort_field.api_field().to_string();
         let sort_dir = if self.sort_desc { "desc" } else { "asc" }.to_string();
+        let settings = self.qr_settings.clone();
         self.status = "Exporting QR codes…".to_string();
         self.loading = true;
         tokio::spawn(async move {
-            let msg = export_all_qr(&client, ws, &search, &sort_by, &sort_dir).await;
+            let msg = export_all_qr(&client, ws, &search, &sort_by, &sort_dir, &settings).await;
             let _ = tx.send(msg);
         });
+    }
+
+    fn open_qr_settings(&mut self) {
+        self.qr_form_focus = 0;
+        self.qr_size_input = Input::new(self.qr_settings.size.to_string());
+        self.qr_fg_input = Input::new(self.qr_settings.fg.clone());
+        self.qr_bg_input = Input::new(self.qr_settings.bg.clone());
+        self.qr_settings_open = true;
+    }
+
+    fn commit_qr_settings(&mut self) {
+        if let Ok(sz) = self.qr_size_input.value().trim().parse::<u32>() {
+            self.qr_settings.size = sz.clamp(64, 4096);
+        }
+        if let Some(c) = crate::qr::normalize_color(self.qr_fg_input.value()) {
+            self.qr_settings.fg = c;
+        }
+        if let Some(c) = crate::qr::normalize_color(self.qr_bg_input.value()) {
+            self.qr_settings.bg = c;
+        }
+        crate::config::save_qr_settings(&self.qr_settings);
+        self.qr_settings_open = false;
+        self.status = format!(
+            "QR settings saved · {} · {}px · {} on {}",
+            self.qr_settings.format.label(),
+            self.qr_settings.size,
+            self.qr_settings.fg,
+            self.qr_settings.bg,
+        );
     }
 
     fn load_workspaces(&self) {
@@ -946,8 +1031,9 @@ async fn export_all_qr(
     search: &str,
     sort_by: &str,
     sort_dir: &str,
+    settings: &crate::qr::QrSettings,
 ) -> AsyncMsg {
-    let dir = crate::qr::output_dir();
+    let dir = crate::qr::output_dir(workspace_id);
     let mut count = 0usize;
     let mut page = 1i64;
     loop {
@@ -960,8 +1046,9 @@ async fn export_all_qr(
         };
         for l in &resp.links {
             if let Some(url) = l.full_url.as_deref().filter(|u| !u.is_empty()) {
-                let fname = crate::qr::file_name(l.id, l.slug.as_deref(), l.name.as_deref());
-                if crate::qr::write_qr(url, &dir.join(fname)).is_ok() {
+                let fname =
+                    crate::qr::file_name(l.id, l.slug.as_deref(), l.name.as_deref(), settings.format);
+                if crate::qr::write_qr(url, &dir.join(fname), settings).is_ok() {
                     count += 1;
                 }
             }

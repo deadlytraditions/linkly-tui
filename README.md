@@ -37,11 +37,13 @@ custom domain) without leaving the terminal.
   selected field, `Esc` leaves edit mode. Changed fields are marked, and on the
   way out you're asked to save if there are unsaved changes; `s` saves at any
   time. Once saved, the new values are the baseline — leaving no longer prompts.
-- **QR codes** — generate a QR code (PNG) for a link's short URL: press `Q` in
-  the detail view for the selected link, or `Q` in the list to batch-export QR
-  codes for **every** link in the workspace. Files land in `./linkly-qr/`, named
-  by link id + slug. (Linkly's API has no QR endpoint; codes are rendered
-  locally from each link's short URL.)
+- **QR codes** — generate a QR code for a link's short URL: press `Q` in the
+  detail view for the selected link, or `Q` in the list to batch-export QR codes
+  for **every** link in the workspace. Files land in
+  `./linkly-qr/<workspace-id>/`, named by link id + slug. Press `o` to open QR
+  settings: **format** (PNG default, SVG, JPEG), **size**, and **fg/bg colours**
+  — persisted to `~/.config/linkly-tui/qr.json`. (Linkly's API has no QR
+  endpoint; codes are rendered locally from each link's short URL.)
 - **Create links** — a form exposing the full Linkly option set. Core fields are
   always visible; `Ctrl-A` reveals advanced fields (OG tags, UTM parameters,
   tracking pixels, cloaking, bot-blocking, custom head/body tags, …). The custom
@@ -105,7 +107,8 @@ stored for it. Deleting the file removes everything.
 | Workspaces | `↑/↓` select · `Enter` continue · `d` forget (+ stored key) · `Esc`/`q` quit |
 | Sign in | `Tab` switch field · `Enter` continue · `Esc` back/quit |
 | Store key? | `s` store · `n`/`Esc` not now |
-| List    | `↑/↓` move · `Enter` details · `c` create · `Q` export QR (workspace) · `/` search · `s` sort · `n`/`p` next/prev page · `r` refresh · `Esc` back to workspaces · `q` quit |
+| List    | `↑/↓` move · `Enter` details · `c` create · `Q` export QR (workspace) · `o` QR settings · `/` search · `s` sort · `n`/`p` page · `r` refresh · `Esc` workspaces · `q` quit |
+| QR settings | `↑/↓` field · `←/→` format · type to edit size/colours · `Enter`/`Esc` save |
 | Sort    | `↑/↓` field · `d`/`←→` direction · `Enter` apply · `Esc` cancel |
 | Detail  | `↑/↓` move field · `Enter` edit / toggle · `s` save · `Q` export QR · `Esc` back (prompts if unsaved) |
 | Editing | type to edit · `Enter`/`Esc` finish editing the field |
@@ -123,7 +126,7 @@ src/
   main.rs            terminal setup/teardown, Tokio runtime, event loop
   app.rs             App state machine (Screen enum), event dispatch, async orchestration
   config.rs          credential env prefill + workspace cache (ids/names, opt-in keys)
-  qr.rs              local QR-code (PNG) generation, single + batch
+  qr.rs              local QR-code generation (png/svg/jpeg, size/colour), single + batch
   api/
     client.rs        LinklyClient — one async method per endpoint
     models.rs        serde models (CreateLinkRequest is the shared write contract)
