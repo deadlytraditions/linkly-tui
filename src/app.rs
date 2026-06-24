@@ -109,6 +109,14 @@ pub struct App {
     pub cached_workspaces: Vec<CachedWorkspace>,
     pub picker_cursor: usize,
 
+    /// The API key used for the current session (for the optional store offer).
+    current_key: String,
+    /// Set when authenticating; the first successful link load clears it and may
+    /// offer to store the key.
+    verify_pending: bool,
+    /// Whether the "store this API key?" prompt is showing.
+    pub store_prompt: bool,
+
     // Link list state.
     pub links: Vec<LinkSummary>,
     pub list_state: TableState,
@@ -166,6 +174,9 @@ impl App {
             workspace_id: 0,
             cached_workspaces,
             picker_cursor: 0,
+            current_key: String::new(),
+            verify_pending: false,
+            store_prompt: false,
             links: Vec::new(),
             list_state: TableState::default(),
             page: 1,
@@ -246,8 +257,7 @@ impl App {
     /// Move to the API-key prompt. `Some(ws)` locks to a cached workspace (key
     /// only); `None` asks for both the key and a workspace id.
     fn start_auth(&mut self, ws: Option<CachedWorkspace>) {
-        let (key, env_ws) = crate::config::env_prefill();
-        self.auth.api_key = Input::new(key);
+        let (env_key, env_ws) = crate::config::env_prefill();
         self.auth.error = None;
         self.auth.focus = 0;
         match ws {
@@ -256,11 +266,14 @@ impl App {
                 self.auth.ws_locked = true;
                 self.auth.ws_name = ws.name;
                 self.auth.workspace_id = Input::new(ws.id.to_string());
+                // Pre-fill a stored key (if any) so the user can just press Enter.
+                self.auth.api_key = Input::new(ws.api_key.unwrap_or(env_key));
             }
             None => {
                 self.auth.ws_locked = false;
                 self.auth.ws_name = String::new();
                 self.auth.workspace_id = Input::new(env_ws);
+                self.auth.api_key = Input::new(env_key);
             }
         }
         self.screen = Screen::Auth;
@@ -314,8 +327,12 @@ impl App {
             }
         };
         self.auth.error = None;
-        self.client = Some(LinklyClient::new(key));
+        self.client = Some(LinklyClient::new(key.clone()));
         self.workspace_id = ws_id;
+        self.current_key = key;
+        // The first successful link load confirms the key works; only then do we
+        // offer to store it.
+        self.verify_pending = true;
         // Mark as most-recently-used now, so the order persists even if the
         // workspaces fetch below fails (e.g. rate limited).
         self.record_workspace_use(None);
@@ -329,6 +346,23 @@ impl App {
     }
 
     fn on_list_key(&mut self, key: KeyEvent) {
+        // The "store API key?" prompt takes precedence over everything else.
+        if self.store_prompt {
+            match key.code {
+                KeyCode::Char('s') | KeyCode::Char('y') => {
+                    self.store_active_key();
+                    self.store_prompt = false;
+                    self.status = "API key stored for this workspace".to_string();
+                }
+                KeyCode::Char('n') | KeyCode::Esc => {
+                    self.store_prompt = false;
+                    self.status = "API key not stored".to_string();
+                }
+                _ => {}
+            }
+            return;
+        }
+
         // Sort picker popup takes precedence.
         if self.sort_open {
             match key.code {
@@ -725,23 +759,46 @@ impl App {
     /// the cache (most-recently-used first) and persist. `name_hint` updates the
     /// stored name when known; otherwise the existing name is kept.
     fn record_workspace_use(&mut self, name_hint: Option<String>) {
+        let existing = self
+            .cached_workspaces
+            .iter()
+            .find(|w| w.id == self.workspace_id);
         let name = name_hint
-            .or_else(|| {
-                self.cached_workspaces
-                    .iter()
-                    .find(|w| w.id == self.workspace_id)
-                    .map(|w| w.name.clone())
-            })
+            .or_else(|| existing.map(|w| w.name.clone()))
             .unwrap_or_else(|| format!("Workspace {}", self.workspace_id));
+        // Preserve any stored key across the move-to-front.
+        let api_key = existing.and_then(|w| w.api_key.clone());
         self.cached_workspaces.retain(|w| w.id != self.workspace_id);
         self.cached_workspaces.insert(
             0,
             CachedWorkspace {
                 id: self.workspace_id,
                 name,
+                api_key,
             },
         );
         crate::config::save_workspaces(&self.cached_workspaces);
+    }
+
+    /// Whether the active workspace already has the current key stored.
+    fn active_key_stored(&self) -> bool {
+        self.cached_workspaces
+            .iter()
+            .find(|w| w.id == self.workspace_id)
+            .and_then(|w| w.api_key.as_deref())
+            == Some(self.current_key.as_str())
+    }
+
+    /// Store the current session's API key against the active workspace.
+    fn store_active_key(&mut self) {
+        if let Some(w) = self
+            .cached_workspaces
+            .iter_mut()
+            .find(|w| w.id == self.workspace_id)
+        {
+            w.api_key = Some(self.current_key.clone());
+            crate::config::save_workspaces(&self.cached_workspaces);
+        }
     }
 
     // ------------------------------------------------------------------
@@ -771,6 +828,14 @@ impl App {
                         .unwrap_or(0)
                         .min(self.links.len() - 1);
                     self.list_state.select(Some(i));
+                }
+                // The key just verified. Offer to store it unless it's already
+                // stored for this workspace.
+                if self.verify_pending {
+                    self.verify_pending = false;
+                    if !self.current_key.is_empty() && !self.active_key_stored() {
+                        self.store_prompt = true;
+                    }
                 }
             }
             AsyncMsg::LinkDetailLoaded(v) => {

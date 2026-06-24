@@ -1,19 +1,24 @@
 //! Credential handling and on-disk workspace cache.
 //!
-//! API keys are **never** persisted — they are entered on every startup. Only
-//! non-secret workspace metadata (id + name) is cached, so you can pick a known
-//! workspace instead of retyping its id. As a convenience the key prompt can be
-//! pre-filled from `LINKLY_API_KEY` / `LINKLY_WORKSPACE_ID`.
+//! Workspace metadata (id + name) is cached so you can pick a known workspace
+//! instead of retyping its id. By default API keys are entered every startup,
+//! but the user may *opt in* to storing a key per workspace. Such keys are
+//! written in **plaintext** to the cache file — a security risk the user is
+//! warned about before storing. The key prompt can also be pre-filled from
+//! `LINKLY_API_KEY` / `LINKLY_WORKSPACE_ID`.
 
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-/// A cached workspace — its id and a human-friendly name. No secrets here.
+/// A cached workspace: id, a human-friendly name, and optionally a stored API
+/// key (plaintext, opt-in).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CachedWorkspace {
     pub id: i64,
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
 }
 
 /// Returns `(api_key, workspace_id)` prefill values read from the environment.
@@ -25,7 +30,7 @@ pub fn env_prefill() -> (String, String) {
 }
 
 /// `~/.config/linkly-tui/workspaces.json` (honouring `XDG_CONFIG_HOME`).
-fn cache_path() -> Option<PathBuf> {
+pub fn cache_path() -> Option<PathBuf> {
     let base = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
@@ -73,10 +78,12 @@ mod tests {
             CachedWorkspace {
                 id: 42,
                 name: "Marketing".to_string(),
+                api_key: Some("secret-key".to_string()),
             },
             CachedWorkspace {
                 id: 7,
                 name: "Personal".to_string(),
+                api_key: None,
             },
         ];
         save_workspaces(&ws);
@@ -85,7 +92,9 @@ mod tests {
         assert_eq!(loaded.len(), 2);
         assert_eq!(loaded[0].id, 42);
         assert_eq!(loaded[0].name, "Marketing");
+        assert_eq!(loaded[0].api_key.as_deref(), Some("secret-key"));
         assert_eq!(loaded[1].id, 7);
+        assert_eq!(loaded[1].api_key, None);
 
         let _ = std::fs::remove_dir_all(&dir);
     }

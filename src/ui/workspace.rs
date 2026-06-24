@@ -37,13 +37,20 @@ pub fn draw(frame: &mut Frame, app: &App) {
         .cached_workspaces
         .iter()
         .map(|w| {
-            ListItem::new(Line::from(vec![
+            let mut spans = vec![
                 Span::styled(w.name.clone(), Style::default().fg(Color::White)),
                 Span::styled(
                     format!("  ·  id {}", w.id),
                     Style::default().fg(theme::MUTED),
                 ),
-            ]))
+            ];
+            if w.api_key.is_some() {
+                spans.push(Span::styled(
+                    "  · 🔑 key saved",
+                    Style::default().fg(theme::OK),
+                ));
+            }
+            ListItem::new(Line::from(spans))
         })
         .collect();
     items.push(ListItem::new(Span::styled(
@@ -68,7 +75,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
 
     frame.render_widget(
         Paragraph::new(Span::styled(
-            "↑↓ select · Enter continue · d forget · Esc/q quit",
+            "↑↓ select · Enter continue · d forget (+ stored key) · Esc/q quit",
             Style::default().fg(theme::MUTED),
         ))
         .alignment(Alignment::Center),

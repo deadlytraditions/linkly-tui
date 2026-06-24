@@ -20,10 +20,14 @@ custom domain) without leaving the terminal.
 ## Features
 
 - **Workspace picker & cache** — remembered workspaces (id + name) are listed on
-  startup; pick one or add a new one. Workspace metadata is cached to disk, but
-  **API keys are never persisted** — you still enter the key each time.
-- **Secure sign-in** — enter your Linkly **API key** (rendered masked). For a new
-  workspace you also provide its ID; for a cached one the ID is already known.
+  startup, most-recently-used first; pick one or add a new one. Workspaces with a
+  stored key are marked `🔑 key saved`.
+- **Sign-in & optional key storage** — enter your Linkly **API key** (rendered
+  masked). For a new workspace you also provide its ID; for a cached one the ID is
+  known (and a stored key is pre-filled). After the key verifies, you're *offered*
+  the choice to store it for that workspace — opt-in, never required. **Stored
+  keys are saved in plaintext**, which is a security risk you're warned about
+  before storing (see below).
 - **Browse links** — a paginated table of every link in the workspace with live
   click stats (total / 30-day / today) and enabled status. The panel title always
   shows the current sort and page (`page 1/3 · 240 total`). Search, sort by any
@@ -75,18 +79,27 @@ The sign-in prompt can be pre-filled from the environment. You still confirm wit
 LINKLY_API_KEY=sk_… LINKLY_WORKSPACE_ID=42 cargo run --release
 ```
 
-### Workspace cache
+### Workspace cache & stored keys
 
-Known workspaces are stored (id + name only, **no keys**) at
-`~/.config/linkly-tui/workspaces.json` (honouring `XDG_CONFIG_HOME`). Delete the
-file, or press `d` on a workspace in the picker, to forget it.
+Known workspaces are stored at `~/.config/linkly-tui/workspaces.json` (honouring
+`XDG_CONFIG_HOME`). The id and name are always cached. An API key is cached only
+if you explicitly accept the "Store API key?" prompt after signing in.
+
+> ⚠️ **Security warning:** stored keys are written in **plaintext**. Anyone who
+> can read that file (other local users, backups, synced dotfiles, etc.) can use
+> your Linkly account. Only store keys on a machine you trust, and prefer the
+> `LINKLY_API_KEY` env var or entering the key each time if in doubt.
+
+Press `d` on a workspace in the picker to forget it, which also deletes any key
+stored for it. Deleting the file removes everything.
 
 ## Keybindings
 
 | Screen  | Keys |
 |---------|------|
-| Workspaces | `↑/↓` select · `Enter` continue · `d` forget · `Esc`/`q` quit |
+| Workspaces | `↑/↓` select · `Enter` continue · `d` forget (+ stored key) · `Esc`/`q` quit |
 | Sign in | `Tab` switch field · `Enter` continue · `Esc` back/quit |
+| Store key? | `s` store · `n`/`Esc` not now |
 | List    | `↑/↓` move · `Enter` details · `c` create · `/` search · `s` sort · `n`/`p` next/prev page · `r` refresh · `Esc` back to workspaces · `q` quit |
 | Sort    | `↑/↓` field · `d`/`←→` direction · `Enter` apply · `Esc` cancel |
 | Detail  | `↑/↓` move field · `Enter` edit / toggle · `s` save · `Esc` back (prompts if unsaved) |
@@ -104,7 +117,7 @@ network.
 src/
   main.rs            terminal setup/teardown, Tokio runtime, event loop
   app.rs             App state machine (Screen enum), event dispatch, async orchestration
-  config.rs          credential env prefill + workspace cache (ids/names only)
+  config.rs          credential env prefill + workspace cache (ids/names, opt-in keys)
   api/
     client.rs        LinklyClient — one async method per endpoint
     models.rs        serde models (CreateLinkRequest is the shared write contract)

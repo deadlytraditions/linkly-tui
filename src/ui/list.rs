@@ -130,6 +130,62 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     if app.sort_open {
         render_sort_popup(frame, app);
     }
+    if app.store_prompt {
+        render_store_prompt(frame, app);
+    }
+}
+
+fn render_store_prompt(frame: &mut Frame, app: &App) {
+    let area = centered_rect(60, 42, frame.area());
+    frame.render_widget(Clear, area);
+
+    let block = panel("Store API key?");
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let name = app
+        .cached_workspaces
+        .iter()
+        .find(|w| w.id == app.workspace_id)
+        .map(|w| w.name.clone())
+        .unwrap_or_else(|| format!("workspace {}", app.workspace_id));
+
+    let rows = Layout::vertical([
+        Constraint::Length(2), // question
+        Constraint::Length(2), // warning
+        Constraint::Length(1), // path
+        Constraint::Length(1), // spacer
+        Constraint::Length(1), // actions
+    ])
+    .horizontal_margin(2)
+    .split(inner);
+
+    frame.render_widget(
+        Paragraph::new(format!(
+            "Save this API key for “{name}” so you won't re-enter it?"
+        ))
+        .style(Style::default().fg(Color::White)),
+        rows[0],
+    );
+    frame.render_widget(
+        Paragraph::new("⚠ The key is stored in PLAINTEXT — anyone who can read")
+            .style(Style::default().fg(theme::ERROR)),
+        rows[1],
+    );
+    frame.render_widget(
+        Paragraph::new("  the cache file can use your Linkly account.")
+            .style(Style::default().fg(theme::ERROR)),
+        rows[2],
+    );
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled("[s]", Style::default().fg(theme::OK)),
+            Span::styled(" store   ", Style::default().fg(theme::MUTED)),
+            Span::styled("[n]", Style::default().fg(theme::ACCENT)),
+            Span::styled(" not now / Esc", Style::default().fg(theme::MUTED)),
+        ])),
+        rows[4],
+    );
 }
 
 fn render_sort_popup(frame: &mut Frame, app: &App) {
