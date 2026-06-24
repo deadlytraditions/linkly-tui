@@ -20,52 +20,10 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         (main, None)
     };
 
-    let header = Row::new(vec![
-        Cell::from(" Name"),
-        Cell::from("Slug"),
-        Cell::from("Domain"),
-        Cell::from("Total"),
-        Cell::from("30d"),
-        Cell::from("Today"),
-        Cell::from("On"),
-    ])
-    .style(
-        Style::default()
-            .fg(theme::ACCENT)
-            .add_modifier(Modifier::BOLD),
-    )
-    .bottom_margin(1);
-
-    let rows = app.links.iter().map(|l| {
-        let enabled = match l.enabled {
-            Some(true) => Span::styled("●", Style::default().fg(theme::OK)),
-            Some(false) => Span::styled("○", Style::default().fg(theme::ERROR)),
-            None => Span::styled("·", Style::default().fg(theme::MUTED)),
-        };
-        Row::new(vec![
-            Cell::from(Span::styled(
-                format!(" {}", l.name.clone().unwrap_or_default()),
-                Style::default().fg(Color::White),
-            )),
-            Cell::from(Span::styled(
-                l.slug.clone().unwrap_or_default(),
-                Style::default().fg(theme::ACCENT),
-            )),
-            Cell::from(Span::styled(
-                l.domain.clone().unwrap_or_default(),
-                Style::default().fg(Color::Gray),
-            )),
-            Cell::from(l.clicks_total.to_string()),
-            Cell::from(l.clicks_thirty_days.to_string()),
-            Cell::from(l.clicks_today.to_string()),
-            Cell::from(enabled),
-        ])
-    });
-
     let widths = [
-        Constraint::Percentage(26),
-        Constraint::Percentage(20),
-        Constraint::Percentage(24),
+        Constraint::Percentage(36), // Name (wider)
+        Constraint::Percentage(10), // Slug (halved)
+        Constraint::Percentage(24), // Domain
         Constraint::Length(7),
         Constraint::Length(7),
         Constraint::Length(7),
@@ -89,9 +47,66 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         search_note,
     );
 
+    let block = panel(&title);
+
+    // Work out the actual width of the Name column using the same layout the
+    // table uses, so we can truncate over-long names with an ellipsis. The table
+    // reserves one column on the left for the selection symbol "▍".
+    let inner = block.inner(table_area);
+    let columns_area = Rect {
+        width: inner.width.saturating_sub(1),
+        ..inner
+    };
+    let col_widths = Layout::horizontal(widths).spacing(1).split(columns_area);
+    // Names get a leading space, so the usable text width is one less.
+    let name_avail = (col_widths[0].width as usize).saturating_sub(1);
+
+    let header = Row::new(vec![
+        Cell::from(" Name"),
+        Cell::from("Slug"),
+        Cell::from("Domain"),
+        Cell::from("Total"),
+        Cell::from("30d"),
+        Cell::from("Today"),
+        Cell::from("On"),
+    ])
+    .style(
+        Style::default()
+            .fg(theme::ACCENT)
+            .add_modifier(Modifier::BOLD),
+    )
+    .bottom_margin(1);
+
+    let rows = app.links.iter().map(|l| {
+        let enabled = match l.enabled {
+            Some(true) => Span::styled("●", Style::default().fg(theme::OK)),
+            Some(false) => Span::styled("○", Style::default().fg(theme::ERROR)),
+            None => Span::styled("·", Style::default().fg(theme::MUTED)),
+        };
+        let name = truncate_ellipsis(l.name.as_deref().unwrap_or_default(), name_avail);
+        Row::new(vec![
+            Cell::from(Span::styled(
+                format!(" {name}"),
+                Style::default().fg(Color::White),
+            )),
+            Cell::from(Span::styled(
+                l.slug.clone().unwrap_or_default(),
+                Style::default().fg(theme::ACCENT),
+            )),
+            Cell::from(Span::styled(
+                l.domain.clone().unwrap_or_default(),
+                Style::default().fg(Color::Gray),
+            )),
+            Cell::from(l.clicks_total.to_string()),
+            Cell::from(l.clicks_thirty_days.to_string()),
+            Cell::from(l.clicks_today.to_string()),
+            Cell::from(enabled),
+        ])
+    });
+
     let table = Table::new(rows, widths)
         .header(header)
-        .block(panel(&title))
+        .block(block)
         .row_highlight_style(
             Style::default()
                 .bg(theme::SELECT_BG)
@@ -169,6 +184,22 @@ fn render_sort_popup(frame: &mut Frame, app: &App) {
     );
 }
 
+/// Truncate `s` to at most `max` display columns, appending `…` when cut so it's
+/// clear the value is incomplete.
+fn truncate_ellipsis(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    match max {
+        0 => String::new(),
+        1 => "…".to_string(),
+        _ => {
+            let kept: String = s.chars().take(max - 1).collect();
+            format!("{kept}…")
+        }
+    }
+}
+
 fn render_search(frame: &mut Frame, area: Rect, app: &App) {
     let mut spans = vec![Span::styled(
         " search ▍ ",
@@ -180,4 +211,28 @@ fn render_search(frame: &mut Frame, area: Rect, app: &App) {
         Style::default().fg(Color::Yellow),
     ));
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::truncate_ellipsis;
+
+    #[test]
+    fn fits_unchanged() {
+        assert_eq!(truncate_ellipsis("promo", 10), "promo");
+        assert_eq!(truncate_ellipsis("promo", 5), "promo");
+    }
+
+    #[test]
+    fn cut_adds_ellipsis_and_respects_width() {
+        let out = truncate_ellipsis("summer-promo-2026", 8);
+        assert_eq!(out, "summer-…");
+        assert_eq!(out.chars().count(), 8);
+    }
+
+    #[test]
+    fn tiny_widths() {
+        assert_eq!(truncate_ellipsis("abc", 1), "…");
+        assert_eq!(truncate_ellipsis("abc", 0), "");
+    }
 }
