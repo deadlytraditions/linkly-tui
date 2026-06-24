@@ -316,6 +316,9 @@ impl App {
         self.auth.error = None;
         self.client = Some(LinklyClient::new(key));
         self.workspace_id = ws_id;
+        // Mark as most-recently-used now, so the order persists even if the
+        // workspaces fetch below fails (e.g. rate limited).
+        self.record_workspace_use(None);
         self.screen = Screen::LinkList;
         self.page = 1;
         self.status = "Loading links…".to_string();
@@ -713,20 +716,26 @@ impl App {
         });
     }
 
-    /// Upsert the active workspace into the cache and persist it.
-    fn cache_active_workspace(&mut self, name: String) {
-        if let Some(w) = self
-            .cached_workspaces
-            .iter_mut()
-            .find(|w| w.id == self.workspace_id)
-        {
-            w.name = name;
-        } else {
-            self.cached_workspaces.push(CachedWorkspace {
+    /// Record that the active workspace was just used: move it to the front of
+    /// the cache (most-recently-used first) and persist. `name_hint` updates the
+    /// stored name when known; otherwise the existing name is kept.
+    fn record_workspace_use(&mut self, name_hint: Option<String>) {
+        let name = name_hint
+            .or_else(|| {
+                self.cached_workspaces
+                    .iter()
+                    .find(|w| w.id == self.workspace_id)
+                    .map(|w| w.name.clone())
+            })
+            .unwrap_or_else(|| format!("Workspace {}", self.workspace_id));
+        self.cached_workspaces.retain(|w| w.id != self.workspace_id);
+        self.cached_workspaces.insert(
+            0,
+            CachedWorkspace {
                 id: self.workspace_id,
                 name,
-            });
-        }
+            },
+        );
         crate::config::save_workspaces(&self.cached_workspaces);
     }
 
@@ -768,15 +777,13 @@ impl App {
                 self.domains = domains;
             }
             AsyncMsg::WorkspacesLoaded(workspaces) => {
-                // Remember the active workspace's name for next time. Fall back
-                // to a synthetic label if the API didn't return a name.
+                // Update the active workspace's stored name now that we know it.
                 let name = workspaces
                     .iter()
                     .find(|w| w.id == self.workspace_id)
                     .map(|w| w.name.clone())
-                    .filter(|n| !n.is_empty())
-                    .unwrap_or_else(|| format!("Workspace {}", self.workspace_id));
-                self.cache_active_workspace(name);
+                    .filter(|n| !n.is_empty());
+                self.record_workspace_use(name);
             }
             AsyncMsg::LinkCreated => {
                 self.screen = Screen::LinkList;
