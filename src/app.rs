@@ -22,6 +22,52 @@ pub enum Screen {
     CreateLink,
 }
 
+/// The columns the link list can be sorted by. Each maps to an API `sort_by`
+/// field that matches a visible table column, so the chosen sort is obvious.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SortField {
+    Created,
+    Name,
+    Slug,
+    ClicksTotal,
+    ClicksThirtyDays,
+    ClicksToday,
+}
+
+impl SortField {
+    pub const ALL: [SortField; 6] = [
+        SortField::Created,
+        SortField::Name,
+        SortField::Slug,
+        SortField::ClicksTotal,
+        SortField::ClicksThirtyDays,
+        SortField::ClicksToday,
+    ];
+
+    /// The API `sort_by` value.
+    pub fn api_field(self) -> &'static str {
+        match self {
+            SortField::Created => "id",
+            SortField::Name => "name",
+            SortField::Slug => "slug",
+            SortField::ClicksTotal => "clicks_total",
+            SortField::ClicksThirtyDays => "clicks_thirty_days",
+            SortField::ClicksToday => "clicks_today",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            SortField::Created => "Created",
+            SortField::Name => "Name",
+            SortField::Slug => "Slug",
+            SortField::ClicksTotal => "Total clicks",
+            SortField::ClicksThirtyDays => "Clicks (30d)",
+            SortField::ClicksToday => "Clicks (today)",
+        }
+    }
+}
+
 /// Results delivered back to the UI from spawned API tasks.
 pub enum AsyncMsg {
     LinksLoaded(ListLinksResponse),
@@ -61,6 +107,14 @@ pub struct App {
     pub search_input: Input,
     pub searching: bool,
 
+    // Sorting.
+    pub sort_field: SortField,
+    pub sort_desc: bool,
+    /// Sort picker popup state.
+    pub sort_open: bool,
+    pub sort_cursor: usize,
+    pub sort_cursor_desc: bool,
+
     // Detail state.
     pub detail: Option<Value>,
     pub detail_scroll: u16,
@@ -97,6 +151,11 @@ impl App {
             search: String::new(),
             search_input: Input::default(),
             searching: false,
+            sort_field: SortField::Created,
+            sort_desc: true,
+            sort_open: false,
+            sort_cursor: 0,
+            sort_cursor_desc: true,
             detail: None,
             detail_scroll: 0,
             create_form: CreateForm::new(),
@@ -159,6 +218,36 @@ impl App {
     }
 
     fn on_list_key(&mut self, key: KeyEvent) {
+        // Sort picker popup takes precedence.
+        if self.sort_open {
+            match key.code {
+                KeyCode::Esc => self.sort_open = false,
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.sort_cursor = self.sort_cursor.saturating_sub(1);
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.sort_cursor = (self.sort_cursor + 1).min(SortField::ALL.len() - 1);
+                }
+                KeyCode::Left
+                | KeyCode::Right
+                | KeyCode::Char('h')
+                | KeyCode::Char('l')
+                | KeyCode::Char('d')
+                | KeyCode::Tab => {
+                    self.sort_cursor_desc = !self.sort_cursor_desc;
+                }
+                KeyCode::Enter => {
+                    self.sort_field = SortField::ALL[self.sort_cursor];
+                    self.sort_desc = self.sort_cursor_desc;
+                    self.sort_open = false;
+                    self.page = 1;
+                    self.reload("Sorting…");
+                }
+                _ => {}
+            }
+            return;
+        }
+
         if self.searching {
             match key.code {
                 KeyCode::Enter => {
@@ -188,6 +277,14 @@ impl App {
             KeyCode::Char('/') => {
                 self.searching = true;
                 self.search_input = Input::new(self.search.clone());
+            }
+            KeyCode::Char('s') => {
+                self.sort_open = true;
+                self.sort_cursor = SortField::ALL
+                    .iter()
+                    .position(|f| *f == self.sort_field)
+                    .unwrap_or(0);
+                self.sort_cursor_desc = self.sort_desc;
             }
             KeyCode::Char('n') => {
                 if self.page < self.total_pages {
@@ -363,8 +460,13 @@ impl App {
         let ws = self.workspace_id;
         let page = self.page;
         let search = self.search.clone();
+        let sort_by = self.sort_field.api_field();
+        let sort_dir = if self.sort_desc { "desc" } else { "asc" };
         tokio::spawn(async move {
-            let msg = match client.list_links(ws, page, PAGE_SIZE, &search).await {
+            let msg = match client
+                .list_links(ws, page, PAGE_SIZE, &search, sort_by, sort_dir)
+                .await
+            {
                 Ok(r) => AsyncMsg::LinksLoaded(r),
                 Err(e) => AsyncMsg::Error(e.to_string()),
             };

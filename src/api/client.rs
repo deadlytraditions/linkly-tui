@@ -25,19 +25,23 @@ impl LinklyClient {
         }
     }
 
-    /// List links in a workspace, paginated.
+    /// List links in a workspace, paginated and sorted.
     pub async fn list_links(
         &self,
         workspace_id: i64,
         page: i64,
         page_size: i64,
         search: &str,
+        sort_by: &str,
+        sort_dir: &str,
     ) -> Result<ListLinksResponse> {
         let url = format!("{BASE_URL}/api/v1/workspace/{workspace_id}/list_links");
         let mut req = self.http.get(url).query(&[
             ("api_key", self.api_key.clone()),
             ("page", page.to_string()),
             ("page_size", page_size.to_string()),
+            ("sort_by", sort_by.to_string()),
+            ("sort_dir", sort_dir.to_string()),
         ]);
         if !search.is_empty() {
             req = req.query(&[("search", search)]);

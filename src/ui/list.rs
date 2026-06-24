@@ -2,12 +2,12 @@
 
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::Span;
-use ratatui::widgets::{Cell, Paragraph, Row, Table};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Cell, Clear, List, ListItem, ListState, Paragraph, Row, Table};
 use ratatui::Frame;
 
-use crate::app::App;
-use crate::ui::{panel, status_bar, theme, with_status_bar};
+use crate::app::{App, SortField};
+use crate::ui::{centered_rect, panel, status_bar, theme, with_status_bar};
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
     let (main, status) = with_status_bar(frame.area());
@@ -72,11 +72,22 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         Constraint::Length(3),
     ];
 
-    let title = if app.search.is_empty() {
-        format!("Links · workspace {}", app.workspace_id)
+    let arrow = if app.sort_desc { "↓" } else { "↑" };
+    let search_note = if app.search.is_empty() {
+        String::new()
     } else {
-        format!("Links · workspace {} · search “{}”", app.workspace_id, app.search)
+        format!(" · search “{}”", app.search)
     };
+    let title = format!(
+        "Links · ws {} · sort {} {} · page {}/{} · {} total{}",
+        app.workspace_id,
+        app.sort_field.label(),
+        arrow,
+        app.page,
+        app.total_pages,
+        app.total_entries,
+        search_note,
+    );
 
     let table = Table::new(rows, widths)
         .header(header)
@@ -98,7 +109,63 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         frame,
         status,
         app,
-        "↑↓ move · Enter details · c create · / search · n/p page · r refresh · q quit",
+        "↑↓ move · Enter details · c create · / search · s sort · n/p page · r refresh · q quit",
+    );
+
+    if app.sort_open {
+        render_sort_popup(frame, app);
+    }
+}
+
+fn render_sort_popup(frame: &mut Frame, app: &App) {
+    let area = centered_rect(40, 55, frame.area());
+    frame.render_widget(Clear, area);
+
+    let items: Vec<ListItem> = SortField::ALL
+        .iter()
+        .map(|f| {
+            let current = *f == app.sort_field;
+            let marker = if current { "● " } else { "  " };
+            ListItem::new(Line::from(vec![
+                Span::styled(marker, Style::default().fg(theme::ACCENT)),
+                Span::styled(f.label(), Style::default().fg(Color::White)),
+            ]))
+        })
+        .collect();
+
+    let dir = if app.sort_cursor_desc {
+        "descending ↓"
+    } else {
+        "ascending ↑"
+    };
+    let title = format!("Sort by · {dir}");
+
+    let list = List::new(items)
+        .block(panel(&title))
+        .highlight_style(
+            Style::default()
+                .bg(theme::SELECT_BG)
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("▍ ");
+
+    let mut state = ListState::default();
+    state.select(Some(app.sort_cursor));
+    frame.render_stateful_widget(list, area, &mut state);
+
+    // Footer hint inside the popup's bottom border row.
+    let hint_area = Rect {
+        x: area.x + 2,
+        y: area.y + area.height.saturating_sub(1),
+        width: area.width.saturating_sub(4),
+        height: 1,
+    };
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            " ↑↓ field · d/←→ direction · Enter apply · Esc cancel ",
+            Style::default().fg(theme::MUTED),
+        )),
+        hint_area,
     );
 }
 
