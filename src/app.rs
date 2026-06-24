@@ -379,7 +379,12 @@ impl App {
         }
 
         match key.code {
-            KeyCode::Char('q') | KeyCode::Esc => self.should_quit = true,
+            KeyCode::Char('q') => self.should_quit = true,
+            // Esc steps back to the workspace picker (Esc again there quits).
+            KeyCode::Esc => {
+                self.screen = Screen::WorkspacePicker;
+                self.picker_cursor = 0;
+            }
             KeyCode::Down | KeyCode::Char('j') => self.select_next(),
             KeyCode::Up | KeyCode::Char('k') => self.select_prev(),
             KeyCode::Enter => self.open_detail(),

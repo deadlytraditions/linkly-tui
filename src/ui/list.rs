@@ -109,7 +109,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         frame,
         status,
         app,
-        "↑↓ move · Enter details · c create · / search · s sort · n/p page · r refresh · q quit",
+        "↑↓ move · Enter details · c create · / search · s sort · n/p page · r refresh · Esc workspaces · q quit",
     );
 
     if app.sort_open {

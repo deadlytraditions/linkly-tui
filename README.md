@@ -87,7 +87,7 @@ file, or press `d` on a workspace in the picker, to forget it.
 |---------|------|
 | Workspaces | `↑/↓` select · `Enter` continue · `d` forget · `Esc`/`q` quit |
 | Sign in | `Tab` switch field · `Enter` continue · `Esc` back/quit |
-| List    | `↑/↓` move · `Enter` details · `c` create · `/` search · `s` sort · `n`/`p` next/prev page · `r` refresh · `q` quit |
+| List    | `↑/↓` move · `Enter` details · `c` create · `/` search · `s` sort · `n`/`p` next/prev page · `r` refresh · `Esc` back to workspaces · `q` quit |
 | Sort    | `↑/↓` field · `d`/`←→` direction · `Enter` apply · `Esc` cancel |
 | Detail  | `↑/↓` move field · `Enter` edit / toggle · `s` save · `Esc` back (prompts if unsaved) |
 | Editing | type to edit · `Enter`/`Esc` finish editing the field |
