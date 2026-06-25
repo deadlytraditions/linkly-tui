@@ -7,7 +7,7 @@
 use anyhow::{bail, Result};
 use serde_json::Value;
 
-use super::models::{CreateLinkRequest, DomainList, ListLinksResponse, Workspace};
+use super::models::{ClicksResponse, CreateLinkRequest, DomainList, ListLinksResponse, Workspace};
 
 const BASE_URL: &str = "https://api.linklyhq.com";
 
@@ -84,6 +84,32 @@ impl LinklyClient {
             .json(&body);
         let resp = check(req.send().await?).await?;
         Ok(resp.json().await.unwrap_or(Value::Null))
+    }
+
+    /// Daily click counts for a single link between `start` and `end`
+    /// (`YYYY-MM-DD`). Returns `(date, count)` pairs.
+    pub async fn get_clicks(
+        &self,
+        workspace_id: i64,
+        link_id: i64,
+        start: &str,
+        end: &str,
+    ) -> Result<Vec<(String, i64)>> {
+        let url = format!("{BASE_URL}/api/v1/workspace/{workspace_id}/clicks");
+        let req = self.http.get(url).query(&[
+            ("api_key", self.api_key.clone()),
+            ("link_id", link_id.to_string()),
+            ("start", start.to_string()),
+            ("end", end.to_string()),
+            ("frequency", "day".to_string()),
+        ]);
+        let resp = check(req.send().await?).await?;
+        let parsed: ClicksResponse = resp.json().await?;
+        Ok(parsed
+            .traffic
+            .into_iter()
+            .map(|p| (p.t.unwrap_or_default(), p.y.unwrap_or(0)))
+            .collect())
     }
 
     /// List the workspaces the API key can access.

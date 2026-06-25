@@ -32,7 +32,7 @@ custom domain) without leaving the terminal.
   shows the current sort and page (`page 1/3 · 240 total`). Search, sort by any
   column (asc/desc), page, and refresh on demand.
 - **View & edit links** — open any link to see a **last-30-days clicks graph**
-  (rendered from the list view's `sparkline` data) plus its fields in a navigable list
+  (daily series from the clicks analytics endpoint) plus its fields in a navigable list
   (the current line is highlighted; no free-scrolling). `Enter` edits the
   selected field, `Esc` leaves edit mode. Changed fields are marked, and on the
   way out you're asked to save if there are unsaved changes; `s` saves at any

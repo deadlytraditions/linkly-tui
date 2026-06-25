@@ -83,6 +83,7 @@ pub enum AsyncMsg {
     LinkCreated(NewLink),
     LinkUpdated,
     WorkspacesLoaded(Vec<Workspace>),
+    ClicksLoaded(Vec<(String, i64)>),
     QrExported { count: usize, dir: String },
     ImportProgress { done: usize, ok: usize, failed: usize },
     ImportDone {
@@ -185,6 +186,8 @@ pub struct App {
 
     // Detail / edit state.
     pub editor: Option<LinkEditor>,
+    /// Daily click series for the open link (`None` = loading).
+    pub detail_clicks: Option<Vec<(String, i64)>>,
 
     // Create state.
     pub create_form: CreateForm,
@@ -249,6 +252,7 @@ impl App {
             sort_cursor: 0,
             sort_cursor_desc: true,
             editor: None,
+            detail_clicks: None,
             create_form: CreateForm::new(),
             domains: Vec::new(),
             tx,
@@ -695,6 +699,7 @@ impl App {
     fn exit_detail(&mut self) {
         self.screen = Screen::LinkList;
         self.editor = None;
+        self.detail_clicks = None;
         self.reload("Refreshing…", self.page);
     }
 
@@ -803,14 +808,30 @@ impl App {
         let tx = self.tx.clone();
         self.screen = Screen::LinkDetail;
         self.editor = None;
+        self.detail_clicks = None;
         self.status = "Loading link details…".to_string();
         self.loading = true;
+        let detail_client = client.clone();
+        let detail_tx = tx.clone();
         tokio::spawn(async move {
-            let msg = match client.get_link(id, ws).await {
+            let msg = match detail_client.get_link(id, ws).await {
                 Ok(v) => AsyncMsg::LinkDetailLoaded(v),
                 Err(e) => AsyncMsg::Error(e.to_string()),
             };
-            let _ = tx.send(msg);
+            let _ = detail_tx.send(msg);
+        });
+
+        // Fetch the last-30-days daily click series for the trend graph.
+        let end = chrono::Local::now().date_naive();
+        let start = end - chrono::Duration::days(29);
+        let (start, end) = (
+            start.format("%Y-%m-%d").to_string(),
+            end.format("%Y-%m-%d").to_string(),
+        );
+        tokio::spawn(async move {
+            if let Ok(series) = client.get_clicks(ws, id, &start, &end).await {
+                let _ = tx.send(AsyncMsg::ClicksLoaded(series));
+            }
         });
     }
 
@@ -1297,6 +1318,9 @@ impl App {
             }
             AsyncMsg::DomainsLoaded(domains) => {
                 self.domains = domains;
+            }
+            AsyncMsg::ClicksLoaded(series) => {
+                self.detail_clicks = Some(series);
             }
             AsyncMsg::WorkspacesLoaded(workspaces) => {
                 let name = workspaces

@@ -85,17 +85,33 @@ pub fn draw(frame: &mut Frame, app: &App) {
     }
 }
 
-/// Render the per-link click trend (from the list-view `sparkline`) as a graph.
+/// Render the link's daily clicks (last 30 days) as a graph.
 fn render_clicks_chart(frame: &mut Frame, area: Rect, app: &App) {
-    let link = app.selected_link();
-    let data: Vec<u64> = link
-        .map(|l| l.sparkline.iter().map(|&v| v.max(0) as u64).collect())
-        .unwrap_or_default();
-    let total = link.map(|l| l.clicks_thirty_days).unwrap_or(0);
-    let today = link.map(|l| l.clicks_today).unwrap_or(0);
+    let all_time = app.selected_link().map(|l| l.clicks_total).unwrap_or(0);
+
+    let (data, sum): (Vec<u64>, i64) = match &app.detail_clicks {
+        Some(series) => (
+            series.iter().map(|(_, y)| (*y).max(0) as u64).collect(),
+            series.iter().map(|(_, y)| *y).sum(),
+        ),
+        None => {
+            frame.render_widget(
+                Paragraph::new(Span::styled(
+                    "Loading clicks…",
+                    Style::default().fg(theme::MUTED),
+                ))
+                .block(panel(&format!(
+                    "{} · Clicks (last 30 days)",
+                    app.workspace_label()
+                ))),
+                area,
+            );
+            return;
+        }
+    };
 
     let title = format!(
-        "{} · Clicks (last 30 days) · {total} total · {today} today",
+        "{} · Clicks (last 30 days): {sum} · all-time: {all_time}",
         app.workspace_label()
     );
 
