@@ -1240,9 +1240,14 @@ impl App {
                     self.page = resp.page_number;
                 }
                 self.loading = false;
+                let search_note = if self.search.is_empty() {
+                    String::new()
+                } else {
+                    format!(" · search “{}”", self.search)
+                };
                 self.status = format!(
-                    "{} links (page {}/{})",
-                    self.total_entries, self.page, self.total_pages
+                    "{} links (page {}/{}){}",
+                    self.total_entries, self.page, self.total_pages, search_note
                 );
                 if self.links.is_empty() {
                     self.list_state.select(None);
