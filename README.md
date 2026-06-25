@@ -54,8 +54,9 @@ custom domain) without leaving the terminal.
   create them all with a live progress bar and automatic back-off on rate limits.
   Columns are link **field names** (header row); only `url` is required, every
   other column is optional and blank cells are skipped; unknown columns are
-  ignored with a warning. Press `t` in the browser to drop a
-  `linkly-import-template.csv` with every supported column. On completion it
+  ignored with a warning. Press `t` in the browser to pick which columns you
+  want (defaults to `url` + `name`) and drop a `linkly-import-template.csv`. On
+  completion it
   writes `linkly-import-success.csv` + `linkly-import-failures.csv` next to your
   file and offers to generate QR codes for the newly created links.
 - **Create links** — a form exposing the full Linkly option set. Core fields are

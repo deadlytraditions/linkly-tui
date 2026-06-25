@@ -7,7 +7,7 @@ use ratatui::widgets::{Gauge, List, ListItem, Paragraph};
 use ratatui::Frame;
 
 use crate::app::App;
-use crate::forms::import::{ImportStage, ImportState, ParsedImport, Progress, Summary};
+use crate::forms::import::{ImportStage, ImportState, ParsedImport, Progress, Summary, TemplatePicker, SUPPORTED};
 use crate::ui::{panel, status_bar, theme, with_status_bar};
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
@@ -17,6 +17,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         Some(ImportStage::Browse) => {
             "↑↓ move · Enter open/select · Backspace up · t template · ? help · Esc cancel"
         }
+        Some(ImportStage::TemplateSelect(_)) => "↑↓ move · Space toggle · Enter write · Esc back",
         Some(ImportStage::Preview(_)) => "Enter/y import · Esc back",
         Some(ImportStage::Running(_)) => "importing…",
         Some(ImportStage::Done(_)) => "y QR the new links · Esc/Enter back to list",
@@ -27,6 +28,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     if let Some(state) = app.import.as_mut() {
         match &state.stage {
             ImportStage::Browse => render_browse(frame, main, state, &ws),
+            ImportStage::TemplateSelect(p) => render_template_select(frame, main, p, &ws),
             ImportStage::Preview(p) => render_preview(frame, main, p, &ws),
             ImportStage::Running(p) => render_running(frame, main, p, &ws),
             ImportStage::Done(sum) => render_done(frame, main, sum, &ws),
@@ -34,6 +36,45 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     }
 
     status_bar(frame, status, app, help);
+}
+
+fn render_template_select(frame: &mut Frame, area: Rect, picker: &TemplatePicker, ws: &str) {
+    use ratatui::widgets::ListState;
+
+    let items: Vec<ListItem> = SUPPORTED
+        .iter()
+        .zip(&picker.selected)
+        .map(|(col, &sel)| {
+            let (mark, mark_style) = if sel {
+                ("[x] ", Style::default().fg(theme::OK))
+            } else {
+                ("[ ] ", Style::default().fg(theme::MUTED))
+            };
+            ListItem::new(Line::from(vec![
+                Span::styled(mark, mark_style),
+                Span::styled(
+                    (*col).to_string(),
+                    Style::default().fg(if sel { Color::White } else { theme::MUTED }),
+                ),
+            ]))
+        })
+        .collect();
+
+    let chosen = picker.selected.iter().filter(|s| **s).count();
+    let list = List::new(items)
+        .block(panel(&format!(
+            "{ws} · Template columns ({chosen} selected) → linkly-import-template.csv"
+        )))
+        .highlight_style(
+            Style::default()
+                .bg(theme::SELECT_BG)
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("▍ ");
+
+    let mut state = ListState::default();
+    state.select(Some(picker.cursor));
+    frame.render_stateful_widget(list, area, &mut state);
 }
 
 fn render_browse(frame: &mut Frame, area: Rect, state: &mut ImportState, ws: &str) {

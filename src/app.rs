@@ -1061,13 +1061,15 @@ impl App {
             Some(ImportStage::Preview(_)) => 1,
             Some(ImportStage::Running(_)) => 2,
             Some(ImportStage::Done(_)) => 3,
+            Some(ImportStage::TemplateSelect(_)) => 4,
             None => return,
         };
         match stage {
             0 => self.import_browse_key(key),
             1 => self.import_preview_key(key),
             2 => {} // running — ignore input
-            _ => self.import_done_key(key),
+            3 => self.import_done_key(key),
+            _ => self.import_template_key(key),
         }
     }
 
@@ -1091,8 +1093,47 @@ impl App {
                     }
                 }
             }
-            KeyCode::Char('t') => self.import_write_template(),
+            KeyCode::Char('t') => {
+                if let Some(s) = self.import.as_mut() {
+                    s.stage = ImportStage::TemplateSelect(
+                        crate::forms::import::TemplatePicker::new(),
+                    );
+                }
+            }
             KeyCode::Enter => self.import_enter_selection(),
+            _ => {}
+        }
+    }
+
+    fn import_template_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                if let Some(s) = self.import.as_mut() {
+                    s.stage = ImportStage::Browse;
+                }
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                if let Some(ImportStage::TemplateSelect(p)) =
+                    self.import.as_mut().map(|s| &mut s.stage)
+                {
+                    p.move_up();
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if let Some(ImportStage::TemplateSelect(p)) =
+                    self.import.as_mut().map(|s| &mut s.stage)
+                {
+                    p.move_down();
+                }
+            }
+            KeyCode::Char(' ') => {
+                if let Some(ImportStage::TemplateSelect(p)) =
+                    self.import.as_mut().map(|s| &mut s.stage)
+                {
+                    p.toggle();
+                }
+            }
+            KeyCode::Enter => self.import_write_template(),
             _ => {}
         }
     }
@@ -1118,12 +1159,21 @@ impl App {
 
     fn import_write_template(&mut self) {
         let Some(s) = self.import.as_mut() else { return };
+        let cols = match &s.stage {
+            ImportStage::TemplateSelect(p) => p.chosen(),
+            _ => return,
+        };
+        if cols.is_empty() {
+            s.message = Some("Select at least one column".to_string());
+            return;
+        }
         let path = s.browser.dir.join("linkly-import-template.csv");
-        s.message = Some(match crate::forms::import::write_template(&path) {
-            Ok(()) => format!("Wrote template to {}", path.display()),
+        s.message = Some(match crate::forms::import::write_template(&path, &cols) {
+            Ok(()) => format!("Wrote template ({} columns) to {}", cols.len(), path.display()),
             Err(e) => format!("Template error: {e}"),
         });
         s.browser.refresh();
+        s.stage = ImportStage::Browse;
     }
 
     fn import_preview_key(&mut self, key: KeyEvent) {

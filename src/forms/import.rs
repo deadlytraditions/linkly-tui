@@ -210,14 +210,59 @@ fn example_value(field: &str) -> &'static str {
     }
 }
 
-/// Write a template CSV (all supported headers + one example row).
-pub fn write_template(path: &Path) -> Result<()> {
+/// Write a template CSV with the given `columns` + one example row.
+pub fn write_template(path: &Path, columns: &[&str]) -> Result<()> {
     let mut wtr = csv::Writer::from_path(path)?;
-    wtr.write_record(SUPPORTED.iter().copied())?;
-    let example: Vec<&str> = SUPPORTED.iter().map(|f| example_value(f)).collect();
+    wtr.write_record(columns.iter().copied())?;
+    let example: Vec<&str> = columns.iter().map(|f| example_value(f)).collect();
     wtr.write_record(example)?;
     wtr.flush()?;
     Ok(())
+}
+
+/// Interactive checklist for choosing which columns go in the template.
+pub struct TemplatePicker {
+    /// Parallel to [`SUPPORTED`].
+    pub selected: Vec<bool>,
+    pub cursor: usize,
+}
+
+impl Default for TemplatePicker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TemplatePicker {
+    pub fn new() -> Self {
+        // Default to the two most common columns.
+        let selected = SUPPORTED.iter().map(|c| matches!(*c, "url" | "name")).collect();
+        Self { selected, cursor: 0 }
+    }
+
+    pub fn move_up(&mut self) {
+        self.cursor = self.cursor.saturating_sub(1);
+    }
+
+    pub fn move_down(&mut self) {
+        self.cursor = (self.cursor + 1).min(SUPPORTED.len() - 1);
+    }
+
+    pub fn toggle(&mut self) {
+        if let Some(s) = self.selected.get_mut(self.cursor) {
+            *s = !*s;
+        }
+    }
+
+    /// The chosen column names, in template order.
+    pub fn chosen(&self) -> Vec<&'static str> {
+        SUPPORTED
+            .iter()
+            .zip(&self.selected)
+            .filter(|(_, s)| **s)
+            .map(|(c, _)| *c)
+            .collect()
+    }
 }
 
 /// A link created during import, parsed from the API's create response.
@@ -393,6 +438,7 @@ pub struct Summary {
 
 pub enum ImportStage {
     Browse,
+    TemplateSelect(TemplatePicker),
     Preview(ParsedImport),
     Running(Progress),
     Done(Summary),
@@ -481,15 +527,20 @@ mod tests {
     }
 
     #[test]
-    fn template_has_all_columns() {
+    fn template_writes_chosen_columns() {
         let path = tmp_csv("");
-        write_template(&path).unwrap();
+        write_template(&path, &["url", "name"]).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         let header = text.lines().next().unwrap();
-        assert!(header.starts_with("url,slug,name"));
-        assert_eq!(header.split(',').count(), SUPPORTED.len());
+        assert_eq!(header, "url,name");
         assert!(text.contains("https://example.com/landing"));
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn template_picker_defaults_to_url_and_name() {
+        let picker = TemplatePicker::new();
+        assert_eq!(picker.chosen(), vec!["url", "name"]);
     }
 
     #[test]
