@@ -37,7 +37,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         format!(" · search “{}”", app.search)
     };
     let title = format!(
-        "{} · Links · sort {} {} · page {}/{} · {} total{}",
+        "{} · Links · Sorted by: {} {} · page {}/{} · {} total{}",
         app.workspace_label(),
         app.sort_field.label(),
         arrow,
