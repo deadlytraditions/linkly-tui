@@ -277,6 +277,9 @@ pub fn write_failures(dir: &Path, failures: &[(u64, String)]) -> Result<PathBuf>
 // File browser
 // ---------------------------------------------------------------------------
 
+/// Directories hidden from the browser (build/system/output clutter).
+const IGNORED_DIRS: &[&str] = &["target", "src", "linkly-qr", "node_modules"];
+
 pub struct BrowserEntry {
     pub name: String,
     pub path: PathBuf,
@@ -321,6 +324,9 @@ impl FileBrowser {
                 }
                 let path = entry.path();
                 if path.is_dir() {
+                    if IGNORED_DIRS.contains(&name.as_str()) {
+                        continue;
+                    }
                     dirs.push(BrowserEntry { name, path, is_dir: true });
                 } else if path
                     .extension()
