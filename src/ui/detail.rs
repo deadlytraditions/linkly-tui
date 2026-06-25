@@ -140,7 +140,7 @@ fn render_clicks_chart(frame: &mut Frame, area: Rect, app: &App) {
     }
 
     let title = format!(
-        "Clicks (last 30 days): {sum} · all-time: {all_time} · peak {max}/day · light→dark = more"
+        "Clicks (last 30 days): {sum} · all-time: {all_time} · peak {max}/day · taller+darker = more"
     );
     let block = panel(&title);
     let inner = block.inner(area);
@@ -150,36 +150,60 @@ fn render_clicks_chart(frame: &mut Frame, area: Rect, app: &App) {
     let band = rows[0];
     let labels = rows[1];
 
-    // Fit the days into the available width: 2 cols/day if it fits, else 1,
-    // showing the most recent days that fit.
     let n = series.len();
     let aw = band.width as usize;
-    let cell_w = if n > 0 && aw >= 2 * n { 2 } else { 1 };
-    let cap = (aw / cell_w).max(1);
-    let start = n.saturating_sub(cap);
-    let shown = &series[start..];
+    let h = band.height as usize;
+    if n == 0 || aw == 0 || h == 0 {
+        return;
+    }
 
-    // Heatmap band: a full-height coloured cell per day.
-    let cell = "█".repeat(cell_w);
-    let band_lines: Vec<Line> = (0..band.height)
-        .map(|_| {
-            Line::from(
-                shown
-                    .iter()
-                    .map(|(_, y)| {
-                        Span::styled(
-                            cell.clone(),
-                            Style::default().fg(click_color((*y).max(0) as u64, max)),
-                        )
-                    })
-                    .collect::<Vec<_>>(),
-            )
+    // Show the most recent days that fit, stretching each column to fill width.
+    let visible = n.min(aw);
+    let shown = &series[n - visible..];
+    let cell_w = (aw / visible).max(1);
+
+    // Per day: bar height in eighths-of-a-cell + colour, both scaled to value.
+    let columns: Vec<(usize, Color)> = shown
+        .iter()
+        .map(|(_, y)| {
+            let v = (*y).max(0) as u64;
+            let eighths = if v == 0 {
+                0
+            } else {
+                (((v as f64) / (max as f64)) * (h as f64) * 8.0).round() as usize
+            }
+            .max(if v > 0 { 1 } else { 0 });
+            (eighths, click_color(v, max))
+        })
+        .collect();
+
+    // Block characters for the partial top cell (bottom-aligned eighths).
+    const PARTIAL: [char; 8] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇'];
+    let band_lines: Vec<Line> = (0..h)
+        .map(|r| {
+            let from_bottom = h - 1 - r;
+            let spans: Vec<Span> = columns
+                .iter()
+                .map(|&(eighths, color)| {
+                    let full = eighths / 8;
+                    let rem = eighths % 8;
+                    let ch = if from_bottom < full {
+                        '█'
+                    } else if from_bottom == full && rem > 0 {
+                        PARTIAL[rem]
+                    } else {
+                        ' '
+                    };
+                    Span::styled(ch.to_string().repeat(cell_w), Style::default().fg(color))
+                })
+                .collect();
+            Line::from(spans)
         })
         .collect();
     frame.render_widget(Paragraph::new(band_lines), band);
 
     // Date labels (MM-DD) under every ~7th day — the day scale.
-    let total_w = shown.len() * cell_w;
+    let total_w = visible * cell_w;
     let mut buf = vec![' '; total_w];
     for (i, (date, _)) in shown.iter().enumerate() {
         if i % 7 == 0 {
