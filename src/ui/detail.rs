@@ -18,7 +18,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
     let (main, status) = with_status_bar(frame.area());
 
     // The link fields on top, a clicks graph pinned to the bottom.
-    let rows = Layout::vertical([Constraint::Min(1), Constraint::Length(9)]).split(main);
+    let rows = Layout::vertical([Constraint::Min(1), Constraint::Length(11)]).split(main);
     render_clicks_chart(frame, rows[1], app);
     let main = rows[0];
 
