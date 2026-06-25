@@ -553,10 +553,17 @@ impl App {
 
         match key.code {
             KeyCode::Char('q') => self.should_quit = true,
-            // Esc steps back to the workspace picker (Esc again there quits).
+            // Esc clears an active search first; otherwise steps back to the
+            // workspace picker (Esc again there quits).
             KeyCode::Esc => {
-                self.screen = Screen::WorkspacePicker;
-                self.picker_cursor = 0;
+                if !self.search.is_empty() {
+                    self.search.clear();
+                    self.page = 1;
+                    self.reload("Search cleared", 1);
+                } else {
+                    self.screen = Screen::WorkspacePicker;
+                    self.picker_cursor = 0;
+                }
             }
             KeyCode::Down | KeyCode::Char('j') => self.select_next(),
             KeyCode::Up | KeyCode::Char('k') => self.select_prev(),
