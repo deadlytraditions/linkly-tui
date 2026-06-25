@@ -75,9 +75,13 @@ impl Default for QrSettings {
     }
 }
 
-/// Directory QR files for a workspace are written to: `linkly-qr/<id>/`.
+/// Directory QR files for a workspace are written to, date-stamped:
+/// `linkly-qr/<id>/<yyyy-mm-dd>/`.
 pub fn output_dir(workspace_id: i64) -> PathBuf {
-    PathBuf::from("linkly-qr").join(workspace_id.to_string())
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    PathBuf::from("linkly-qr")
+        .join(workspace_id.to_string())
+        .join(today)
 }
 
 /// Turn a slug/name into a filesystem-safe fragment.
@@ -188,8 +192,15 @@ mod tests {
     }
 
     #[test]
-    fn output_dir_is_per_workspace() {
-        assert_eq!(output_dir(42), PathBuf::from("linkly-qr").join("42"));
+    fn output_dir_is_per_workspace_and_dated() {
+        let dir = output_dir(42);
+        let parts: Vec<_> = dir.components().collect();
+        // .../linkly-qr/42/<yyyy-mm-dd>
+        assert!(dir.starts_with(PathBuf::from("linkly-qr").join("42")));
+        let last = dir.file_name().unwrap().to_str().unwrap();
+        assert_eq!(last.len(), 10, "date dir should be yyyy-mm-dd");
+        assert_eq!(last.match_indices('-').count(), 2);
+        assert!(parts.len() >= 3);
     }
 
     #[test]

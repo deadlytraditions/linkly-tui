@@ -3,6 +3,7 @@
 mod auth;
 mod create;
 mod detail;
+mod import;
 mod list;
 mod workspace;
 
@@ -59,6 +60,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         Screen::LinkList => list::draw(frame, app),
         Screen::LinkDetail => detail::draw(frame, app),
         Screen::CreateLink => create::draw(frame, app),
+        Screen::Import => import::draw(frame, app),
     }
 
     // The QR dialog overlays whatever screen is active.

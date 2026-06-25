@@ -41,9 +41,19 @@ custom domain) without leaving the terminal.
   link in the workspace. `Q` opens a dialog to choose **format** (PNG default,
   SVG, JPEG), **size**, and **fg/bg colours** before exporting (`Enter` to
   export, `Esc` to cancel). Files land in `./linkly-qr/<workspace-id>/`, named by
-  link id + slug. Choices persist to `~/.config/linkly-tui/qr.json`; press `o` to
-  edit those defaults without exporting. (Linkly's API has no QR endpoint; codes
-  are rendered locally from each link's short URL.)
+  link id + slug, under a date-stamped folder `./linkly-qr/<workspace-id>/<yyyy-mm-dd>/`.
+  Choices persist to `~/.config/linkly-tui/qr.json`; press `o` to edit those
+  defaults without exporting. (Linkly's API has no QR endpoint; codes are
+  rendered locally from each link's short URL.)
+- **Bulk import from CSV** — press `i` to open a built-in file browser, pick a
+  `.csv`, preview a parsed summary (valid/invalid rows, ignored columns), then
+  create them all with a live progress bar and automatic back-off on rate limits.
+  Columns are link **field names** (header row); only `url` is required, every
+  other column is optional and blank cells are skipped; unknown columns are
+  ignored with a warning. Press `t` in the browser to drop a
+  `linkly-import-template.csv` with every supported column. On completion it
+  writes `linkly-import-success.csv` + `linkly-import-failures.csv` next to your
+  file and offers to generate QR codes for the newly created links.
 - **Create links** — a form exposing the full Linkly option set. Core fields are
   always visible; `Ctrl-A` reveals advanced fields (OG tags, UTM parameters,
   tracking pixels, cloaking, bot-blocking, custom head/body tags, …). The custom
@@ -107,7 +117,8 @@ stored for it. Deleting the file removes everything.
 | Workspaces | `↑/↓` select · `Enter` continue · `d` forget (+ stored key) · `Esc`/`q` quit |
 | Sign in | `Tab` switch field · `Enter` continue · `Esc` back/quit |
 | Store key? | `s` store · `n`/`Esc` not now |
-| List    | `↑/↓` move · `Enter` details · `c` create · `Q` export QR (workspace) · `o` QR defaults · `/` search · `s` sort · `n`/`p` page · `r` refresh · `Esc` workspaces · `q` quit |
+| List    | `↑/↓` move · `Enter` details · `c` create · `i` import CSV · `Q` export QR (workspace) · `o` QR defaults · `/` search · `s` sort · `n`/`p` page · `r` refresh · `Esc` workspaces · `q` quit |
+| Import  | browse: `↑/↓` move · `Enter` open/select · `Backspace` up · `t` template · `Esc` cancel · preview: `Enter`/`y` import · done: `y` QR the new links |
 | QR dialog | `↑/↓` field · `←/→` format · type to edit size/colours · `Enter` export/save · `Esc` cancel |
 | Sort    | `↑/↓` field · `d`/`←→` direction · `Enter` apply · `Esc` cancel |
 | Detail  | `↑/↓` move field · `Enter` edit / toggle · `s` save · `Q` export QR · `Esc` back (prompts if unsaved) |
@@ -133,6 +144,7 @@ src/
   forms/
     create_form.rs   create-form state + pure build() -> CreateLinkRequest
     edit_form.rs     link editor state (dirty tracking, update payload, save baseline)
+    import.rs        CSV parsing/field-mapping, file browser, template + result CSVs
   ui/
     mod.rs           shared theme, banner, status bar, panel/layout helpers
     workspace.rs     startup workspace picker
@@ -140,6 +152,8 @@ src/
     list.rs          links table
     detail.rs        single-link detail view
     create.rs        create form + domain picker popup
+    import.rs        CSV import screens (browser, preview, progress, done)
+  qr.rs              local QR generation (png/svg/jpeg), date-stamped output dirs
 ```
 
 ### Tech stack
@@ -150,6 +164,9 @@ src/
 | Async runtime  | `tokio` |
 | HTTP client    | `reqwest` (rustls) |
 | Serialization  | `serde` / `serde_json` |
+| CSV            | `csv` |
+| QR / images    | `qrcode` + `image` |
+| Dates          | `chrono` |
 | Text input     | `tui-input` |
 | Errors         | `anyhow` |
 
@@ -164,19 +181,6 @@ cargo build            # compile
 cargo test             # unit tests (request building & serialization)
 cargo clippy --all-targets   # lint (kept warning-free)
 ```
-
-## Roadmap
-
-- **CSV batch import** — the groundwork is already in place:
-  - `CreateLinkRequest` (`api/models.rs`) is the single write contract, with
-    `skip_serializing_if` on every optional field, so only set values are sent.
-  - `CreateForm::build()` is a pure `state -> CreateLinkRequest` function.
-  - The `csv` crate is already a dependency.
-
-  A future `import` module will read a CSV (column headers = field names), map
-  each row to a `CreateLinkRequest`, and submit rows sequentially with a progress
-  view — reusing `LinklyClient::create_link` and the existing models, with no
-  refactor.
 
 ## License
 

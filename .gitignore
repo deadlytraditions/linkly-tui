@@ -20,3 +20,8 @@ api-1.json
 
 # Generated QR codes
 /linkly-qr
+
+# Import artifacts
+linkly-import-template.csv
+linkly-import-success.csv
+linkly-import-failures.csv

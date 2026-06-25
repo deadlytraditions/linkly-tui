@@ -1,5 +1,8 @@
 //! Application state machine, event dispatch, and async orchestration.
 
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::widgets::TableState;
 use serde_json::Value;
@@ -7,10 +10,11 @@ use tokio::sync::mpsc::UnboundedSender;
 use tui_input::backend::crossterm::EventHandler;
 use tui_input::Input;
 
-use crate::api::models::{LinkSummary, ListLinksResponse, Workspace};
+use crate::api::models::{CreateLinkRequest, LinkSummary, ListLinksResponse, Workspace};
 use crate::api::LinklyClient;
 use crate::config::CachedWorkspace;
-use crate::forms::{CreateForm, DetailMode, DomainSelector, EditKind, Field, LinkEditor};
+use crate::forms::import::{ImportStage, NewLink, Progress, Summary};
+use crate::forms::{CreateForm, DetailMode, DomainSelector, EditKind, Field, ImportState, LinkEditor};
 
 pub const PAGE_SIZE: i64 = 100;
 
@@ -22,6 +26,7 @@ pub enum Screen {
     LinkList,
     LinkDetail,
     CreateLink,
+    Import,
 }
 
 /// The columns the link list can be sorted by. Each maps to an API `sort_by`
@@ -79,6 +84,14 @@ pub enum AsyncMsg {
     LinkUpdated,
     WorkspacesLoaded(Vec<Workspace>),
     QrExported { count: usize, dir: String },
+    ImportProgress { done: usize, ok: usize, failed: usize },
+    ImportDone {
+        ok: usize,
+        failed: usize,
+        success_path: Option<String>,
+        failure_path: Option<String>,
+        new_links: Vec<NewLink>,
+    },
     Error(String),
 }
 
@@ -145,6 +158,9 @@ pub struct App {
     pub qr_bg_input: Input,
     /// What to export once the QR dialog is confirmed (`None` = settings only).
     qr_pending: Option<QrExportTarget>,
+
+    /// CSV import flow (file browser → preview → run → done), if active.
+    pub import: Option<ImportState>,
 
     // Link list state.
     pub links: Vec<LinkSummary>,
@@ -214,6 +230,7 @@ impl App {
             qr_fg_input: Input::default(),
             qr_bg_input: Input::default(),
             qr_pending: None,
+            import: None,
             links: Vec::new(),
             list_state: TableState::default(),
             page: 1,
@@ -251,6 +268,7 @@ impl App {
             Screen::LinkList => self.on_list_key(key),
             Screen::LinkDetail => self.on_detail_key(key),
             Screen::CreateLink => self.on_create_key(key),
+            Screen::Import => self.on_import_key(key),
         }
     }
 
@@ -465,6 +483,7 @@ impl App {
             KeyCode::Char('c') => self.open_create(),
             KeyCode::Char('Q') => self.open_qr_settings(Some(QrExportTarget::Workspace)),
             KeyCode::Char('o') => self.open_qr_settings(None),
+            KeyCode::Char('i') => self.open_import(),
             KeyCode::Char('r') => self.reload("Refreshing…", self.page),
             KeyCode::Char('/') => {
                 self.searching = true;
@@ -924,6 +943,189 @@ impl App {
         }
     }
 
+    // ------------------------------------------------------------------
+    // CSV import
+    // ------------------------------------------------------------------
+
+    fn open_import(&mut self) {
+        self.import = Some(ImportState::new());
+        self.screen = Screen::Import;
+        self.status = String::new();
+    }
+
+    fn close_import(&mut self) {
+        self.import = None;
+        self.screen = Screen::LinkList;
+        self.reload("Refreshing…", self.page);
+    }
+
+    fn on_import_key(&mut self, key: KeyEvent) {
+        let stage = match self.import.as_ref().map(|s| &s.stage) {
+            Some(ImportStage::Browse) => 0,
+            Some(ImportStage::Preview(_)) => 1,
+            Some(ImportStage::Running(_)) => 2,
+            Some(ImportStage::Done(_)) => 3,
+            None => return,
+        };
+        match stage {
+            0 => self.import_browse_key(key),
+            1 => self.import_preview_key(key),
+            2 => {} // running — ignore input
+            _ => self.import_done_key(key),
+        }
+    }
+
+    fn import_browse_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => self.close_import(),
+            KeyCode::Up | KeyCode::Char('k') => {
+                if let Some(s) = self.import.as_mut() {
+                    s.browser.move_up();
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if let Some(s) = self.import.as_mut() {
+                    s.browser.move_down();
+                }
+            }
+            KeyCode::Left | KeyCode::Backspace => {
+                if let Some(s) = self.import.as_mut() {
+                    if let Some(parent) = s.browser.dir.parent().map(Path::to_path_buf) {
+                        s.browser.open_dir(parent);
+                    }
+                }
+            }
+            KeyCode::Char('t') => self.import_write_template(),
+            KeyCode::Enter => self.import_enter_selection(),
+            _ => {}
+        }
+    }
+
+    fn import_enter_selection(&mut self) {
+        let ws = self.workspace_id;
+        let Some(s) = self.import.as_mut() else { return };
+        let Some(entry) = s.browser.selected() else { return };
+        if entry.is_dir {
+            let dir = entry.path.clone();
+            s.browser.open_dir(dir);
+            return;
+        }
+        let path = entry.path.clone();
+        match crate::forms::import::parse_csv(&path, ws) {
+            Ok(parsed) => {
+                s.message = None;
+                s.stage = ImportStage::Preview(parsed);
+            }
+            Err(e) => s.message = Some(format!("Parse error: {e}")),
+        }
+    }
+
+    fn import_write_template(&mut self) {
+        let Some(s) = self.import.as_mut() else { return };
+        let path = s.browser.dir.join("linkly-import-template.csv");
+        s.message = Some(match crate::forms::import::write_template(&path) {
+            Ok(()) => format!("Wrote template to {}", path.display()),
+            Err(e) => format!("Template error: {e}"),
+        });
+        s.browser.refresh();
+    }
+
+    fn import_preview_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Enter | KeyCode::Char('y') => self.import_confirm(),
+            KeyCode::Esc | KeyCode::Char('n') => {
+                if let Some(s) = self.import.as_mut() {
+                    s.stage = ImportStage::Browse;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn import_confirm(&mut self) {
+        let (reqs, dir) = {
+            let Some(s) = self.import.as_mut() else { return };
+            let ImportStage::Preview(parsed) = &s.stage else { return };
+            let reqs = parsed.valid_requests();
+            let dir = parsed
+                .path
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| PathBuf::from("."));
+            let total = reqs.len();
+            s.stage = ImportStage::Running(Progress {
+                total,
+                done: 0,
+                ok: 0,
+                failed: 0,
+            });
+            (reqs, dir)
+        };
+        let Some(client) = self.client.clone() else { return };
+        let tx = self.tx.clone();
+        self.status = "Importing…".to_string();
+        self.loading = true;
+        tokio::spawn(async move {
+            run_import(client, tx, reqs, dir).await;
+        });
+    }
+
+    fn import_awaiting_qr(&self) -> bool {
+        if let Some(s) = &self.import {
+            if let ImportStage::Done(sum) = &s.stage {
+                return sum.qr_done.is_none() && !sum.new_links.is_empty();
+            }
+        }
+        false
+    }
+
+    fn import_done_key(&mut self, key: KeyEvent) {
+        let awaiting = self.import_awaiting_qr();
+        match key.code {
+            KeyCode::Char('y') if awaiting => self.import_generate_qr(),
+            KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q') | KeyCode::Char('n') => {
+                self.close_import();
+            }
+            _ => {}
+        }
+    }
+
+    fn import_generate_qr(&mut self) {
+        let links: Vec<NewLink> = match &self.import {
+            Some(s) => match &s.stage {
+                ImportStage::Done(sum) => sum.new_links.clone(),
+                _ => return,
+            },
+            None => return,
+        };
+        let ws = self.workspace_id;
+        let settings = self.qr_settings.clone();
+        let tx = self.tx.clone();
+        self.status = "Generating QR codes…".to_string();
+        self.loading = true;
+        tokio::spawn(async move {
+            let dir = crate::qr::output_dir(ws);
+            let mut count = 0usize;
+            for l in &links {
+                if let Some(url) = l.full_url.as_deref().filter(|u| !u.is_empty()) {
+                    let fname = crate::qr::file_name(
+                        l.id,
+                        l.slug.as_deref(),
+                        l.name.as_deref(),
+                        settings.format,
+                    );
+                    if crate::qr::write_qr(url, &dir.join(fname), &settings).is_ok() {
+                        count += 1;
+                    }
+                }
+            }
+            let _ = tx.send(AsyncMsg::QrExported {
+                count,
+                dir: dir.display().to_string(),
+            });
+        });
+    }
+
     fn load_workspaces(&self) {
         let Some(client) = self.client.clone() else { return };
         let tx = self.tx.clone();
@@ -1068,6 +1270,43 @@ impl App {
             AsyncMsg::QrExported { count, dir } => {
                 self.loading = false;
                 self.status = format!("Exported {count} QR code(s) to {dir}/");
+                // If this was the post-import QR run, record it on the summary.
+                if let Some(s) = self.import.as_mut() {
+                    if let ImportStage::Done(sum) = &mut s.stage {
+                        sum.qr_done = Some(count);
+                        sum.qr_dir = Some(dir);
+                    }
+                }
+            }
+            AsyncMsg::ImportProgress { done, ok, failed } => {
+                if let Some(s) = self.import.as_mut() {
+                    if let ImportStage::Running(p) = &mut s.stage {
+                        p.done = done;
+                        p.ok = ok;
+                        p.failed = failed;
+                    }
+                }
+            }
+            AsyncMsg::ImportDone {
+                ok,
+                failed,
+                success_path,
+                failure_path,
+                new_links,
+            } => {
+                self.loading = false;
+                self.status = format!("Imported {ok} link(s), {failed} failed");
+                if let Some(s) = self.import.as_mut() {
+                    s.stage = ImportStage::Done(Summary {
+                        ok,
+                        failed,
+                        success_path: success_path.map(PathBuf::from),
+                        failure_path: failure_path.map(PathBuf::from),
+                        new_links,
+                        qr_done: None,
+                        qr_dir: None,
+                    });
+                }
             }
             AsyncMsg::Error(e) => {
                 self.loading = false;
@@ -1078,6 +1317,73 @@ impl App {
             }
         }
     }
+}
+
+/// Create one link, retrying with backoff on rate-limit (HTTP 429).
+async fn submit_one(client: &LinklyClient, req: &CreateLinkRequest) -> Result<Value, String> {
+    let mut delay = Duration::from_secs(1);
+    for attempt in 0..4 {
+        match client.create_link(req).await {
+            Ok(v) => return Ok(v),
+            Err(e) => {
+                let msg = e.to_string();
+                if msg.contains("429") && attempt < 3 {
+                    tokio::time::sleep(delay).await;
+                    delay = (delay * 2).min(Duration::from_secs(8));
+                    continue;
+                }
+                return Err(msg);
+            }
+        }
+    }
+    Err("rate limited".to_string())
+}
+
+/// Submit all parsed rows sequentially, reporting progress, then write the
+/// success/failure CSVs next to the input file.
+async fn run_import(
+    client: LinklyClient,
+    tx: UnboundedSender<AsyncMsg>,
+    reqs: Vec<(u64, CreateLinkRequest)>,
+    dir: PathBuf,
+) {
+    let mut ok = 0usize;
+    let mut failed = 0usize;
+    let mut new_links: Vec<NewLink> = Vec::new();
+    let mut failures: Vec<(u64, String)> = Vec::new();
+
+    for (i, (line, req)) in reqs.into_iter().enumerate() {
+        match submit_one(&client, &req).await {
+            Ok(v) => {
+                ok += 1;
+                new_links.push(NewLink::from_response(&v));
+            }
+            Err(e) => {
+                failed += 1;
+                failures.push((line, e));
+            }
+        }
+        let _ = tx.send(AsyncMsg::ImportProgress {
+            done: i + 1,
+            ok,
+            failed,
+        });
+    }
+
+    let success_path = (!new_links.is_empty())
+        .then(|| crate::forms::import::write_success(&dir, &new_links).ok())
+        .flatten();
+    let failure_path = (!failures.is_empty())
+        .then(|| crate::forms::import::write_failures(&dir, &failures).ok())
+        .flatten();
+
+    let _ = tx.send(AsyncMsg::ImportDone {
+        ok,
+        failed,
+        success_path: success_path.map(|p| p.display().to_string()),
+        failure_path: failure_path.map(|p| p.display().to_string()),
+        new_links,
+    });
 }
 
 /// Page through every link in the workspace and write a QR PNG for each.
