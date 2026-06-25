@@ -20,13 +20,14 @@ custom domain) without leaving the terminal.
 
 - **Workspace picker & cache** — remembered workspaces (id + name) are listed on
   startup, most-recently-used first; pick one or add a new one. Workspaces with a
-  stored key are marked `🔑 key saved`.
+  stored key are marked `🔑 key saved`, and **selecting one signs you in
+  immediately** (no prompt).
 - **Sign-in & optional key storage** — enter your Linkly **API key** (rendered
   masked). For a new workspace you also provide its ID; for a cached one the ID is
-  known (and a stored key is pre-filled). After the key verifies, you're *offered*
-  the choice to store it for that workspace — opt-in, never required. **Stored
-  keys are saved in plaintext**, which is a security risk you're warned about
-  before storing (see below).
+  known (and a stored key signs you straight in). After the key verifies, you're
+  *offered* the choice to store it for that workspace — opt-in, never required.
+  **Stored keys are saved in plaintext**, which is a security risk you're warned
+  about before storing (see below).
 - **Browse links** — a paginated table of every link in the workspace with live
   click stats (total / 30-day / today) and enabled status. The panel title always
   shows the current sort and page (`page 1/3 · 240 total`). Search, sort by any

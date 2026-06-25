@@ -335,7 +335,12 @@ impl App {
                     self.start_auth(None);
                 } else {
                     let ws = self.cached_workspaces[self.picker_cursor].clone();
+                    let has_key = ws.api_key.as_ref().is_some_and(|k| !k.is_empty());
                     self.start_auth(Some(ws));
+                    // A stored key means we can sign in immediately, no prompt.
+                    if has_key {
+                        self.try_authenticate();
+                    }
                 }
             }
             _ => {}
