@@ -23,19 +23,20 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         None => "",
     };
 
+    let ws = app.workspace_label();
     if let Some(state) = app.import.as_mut() {
         match &state.stage {
-            ImportStage::Browse => render_browse(frame, main, state),
-            ImportStage::Preview(p) => render_preview(frame, main, p),
-            ImportStage::Running(p) => render_running(frame, main, p),
-            ImportStage::Done(sum) => render_done(frame, main, sum),
+            ImportStage::Browse => render_browse(frame, main, state, &ws),
+            ImportStage::Preview(p) => render_preview(frame, main, p, &ws),
+            ImportStage::Running(p) => render_running(frame, main, p, &ws),
+            ImportStage::Done(sum) => render_done(frame, main, sum, &ws),
         }
     }
 
     status_bar(frame, status, app, help);
 }
 
-fn render_browse(frame: &mut Frame, area: Rect, state: &mut ImportState) {
+fn render_browse(frame: &mut Frame, area: Rect, state: &mut ImportState, ws: &str) {
     let rows = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(area);
 
     let items: Vec<ListItem> = state
@@ -57,7 +58,7 @@ fn render_browse(frame: &mut Frame, area: Rect, state: &mut ImportState) {
         })
         .collect();
 
-    let title = format!("Import CSV · {}", state.browser.dir.display());
+    let title = format!("{ws} · Import CSV · {}", state.browser.dir.display());
     let list = List::new(items)
         .block(panel(&title))
         .highlight_style(
@@ -77,7 +78,7 @@ fn render_browse(frame: &mut Frame, area: Rect, state: &mut ImportState) {
     );
 }
 
-fn render_preview(frame: &mut Frame, area: Rect, p: &ParsedImport) {
+fn render_preview(frame: &mut Frame, area: Rect, p: &ParsedImport, ws: &str) {
     let file = p
         .path
         .file_name()
@@ -149,12 +150,12 @@ fn render_preview(frame: &mut Frame, area: Rect, p: &ParsedImport) {
     )));
 
     frame.render_widget(
-        Paragraph::new(lines).block(panel(&format!("Preview · {file}"))),
+        Paragraph::new(lines).block(panel(&format!("{ws} · Preview · {file}"))),
         area,
     );
 }
 
-fn render_running(frame: &mut Frame, area: Rect, p: &Progress) {
+fn render_running(frame: &mut Frame, area: Rect, p: &Progress, ws: &str) {
     let rows = Layout::vertical([Constraint::Length(3), Constraint::Min(0)])
         .horizontal_margin(1)
         .split(area);
@@ -165,7 +166,7 @@ fn render_running(frame: &mut Frame, area: Rect, p: &Progress) {
         p.done as f64 / p.total as f64
     };
     let gauge = Gauge::default()
-        .block(panel("Importing"))
+        .block(panel(&format!("{ws} · Importing")))
         .gauge_style(Style::default().fg(theme::ACCENT))
         .ratio(ratio)
         .label(format!(
@@ -175,7 +176,7 @@ fn render_running(frame: &mut Frame, area: Rect, p: &Progress) {
     frame.render_widget(gauge, rows[0]);
 }
 
-fn render_done(frame: &mut Frame, area: Rect, sum: &Summary) {
+fn render_done(frame: &mut Frame, area: Rect, sum: &Summary, ws: &str) {
     let mut lines: Vec<Line> = vec![
         Line::from(vec![
             Span::styled("Created: ", Style::default().fg(theme::MUTED)),
@@ -238,7 +239,7 @@ fn render_done(frame: &mut Frame, area: Rect, sum: &Summary) {
     }
 
     frame.render_widget(
-        Paragraph::new(lines).block(panel("Import complete")),
+        Paragraph::new(lines).block(panel(&format!("{ws} · Import complete"))),
         area,
     );
 }

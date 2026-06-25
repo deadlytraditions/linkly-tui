@@ -338,6 +338,25 @@ impl App {
         }
     }
 
+    /// `ws <id> · <name>` for the active workspace (name omitted if unknown).
+    /// Shown top-left on every post-auth screen.
+    pub fn workspace_label(&self) -> String {
+        let name = self
+            .cached_workspaces
+            .iter()
+            .find(|w| w.id == self.workspace_id)
+            .map(|w| w.name.clone())
+            .filter(|n| !n.is_empty())
+            .or_else(|| {
+                let n = self.auth.ws_name.clone();
+                (!n.is_empty()).then_some(n)
+            });
+        match name {
+            Some(n) => format!("ws {} · {}", self.workspace_id, n),
+            None => format!("ws {}", self.workspace_id),
+        }
+    }
+
     /// Whether pressing `?` should open the help overlay on the current screen.
     /// Returns false when a text field is focused so `?` types normally.
     fn question_opens_help(&self) -> bool {

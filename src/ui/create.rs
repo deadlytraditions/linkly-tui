@@ -42,13 +42,14 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         items.push(field_item(&app.create_form, f, i == app.create_form.focus));
     }
 
-    let title = if app.create_form.show_advanced {
-        "Create link · advanced"
+    let scope = if app.create_form.show_advanced {
+        "advanced"
     } else {
-        "Create link · core"
+        "core"
     };
+    let title = format!("{} · Create link · {scope}", app.workspace_label());
 
-    let list = List::new(items).block(panel(title)).highlight_style(
+    let list = List::new(items).block(panel(&title)).highlight_style(
         Style::default()
             .bg(theme::SELECT_BG)
             .add_modifier(Modifier::BOLD),

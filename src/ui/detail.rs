@@ -23,7 +23,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 "Loading…",
                 Style::default().fg(theme::MUTED),
             ))
-            .block(panel("Link details")),
+            .block(panel(&format!("{} · Link details", app.workspace_label()))),
             main,
         );
         status_bar(frame, status, app, "Esc back");
@@ -46,7 +46,13 @@ pub fn draw(frame: &mut Frame, app: &App) {
         .collect();
 
     let dirty = if editor.dirty() { " · unsaved ●" } else { "" };
-    let title = format!("Link #{} · {}{}", editor.id, editor.full_url, dirty);
+    let title = format!(
+        "{} · Link #{} · {}{}",
+        app.workspace_label(),
+        editor.id,
+        editor.full_url,
+        dirty
+    );
 
     // Highlight is yellow while editing the current line, blue while navigating.
     let highlight = if editing {
