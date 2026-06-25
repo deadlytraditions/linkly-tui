@@ -338,8 +338,8 @@ impl App {
         }
     }
 
-    /// `ws <id> · <name>` for the active workspace (name omitted if unknown).
-    /// Shown top-left on every post-auth screen.
+    /// `Workspace: <id> · <name>` for the active workspace (name omitted if
+    /// unknown). Shown top-left on every post-auth screen.
     pub fn workspace_label(&self) -> String {
         let name = self
             .cached_workspaces
@@ -352,8 +352,8 @@ impl App {
                 (!n.is_empty()).then_some(n)
             });
         match name {
-            Some(n) => format!("ws {} · {}", self.workspace_id, n),
-            None => format!("ws {}", self.workspace_id),
+            Some(n) => format!("Workspace: {} · {}", self.workspace_id, n),
+            None => format!("Workspace: {}", self.workspace_id),
         }
     }
 
