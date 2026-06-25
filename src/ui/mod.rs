@@ -102,7 +102,22 @@ fn screen_keybinds(screen: Screen) -> &'static [(&'static str, &'static str)] {
             ("d", "forget workspace (+ stored key)"),
             ("Esc / q", "quit"),
         ],
-        _ => &[],
+        Screen::CreateLink => &[
+            ("Tab  ↑/↓", "move between fields"),
+            ("Space", "toggle a boolean field"),
+            ("Ctrl-A", "show / hide advanced fields"),
+            ("Enter", "pick domain / save on Submit"),
+            ("Esc", "cancel"),
+        ],
+        Screen::Import => &[
+            ("↑/↓", "move (file browser)"),
+            ("Enter", "open dir / select file / confirm"),
+            ("Backspace", "up a directory"),
+            ("t", "write a template CSV"),
+            ("y", "import (preview) / QR new links (done)"),
+            ("Esc", "cancel / back"),
+        ],
+        Screen::Auth => &[],
     }
 }
 

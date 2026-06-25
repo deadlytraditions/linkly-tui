@@ -62,7 +62,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         frame,
         status,
         app,
-        "Tab move · Space toggle · ^A advanced · Enter save (on Submit) · Esc cancel",
+        "Tab move · Space toggle · ^A advanced · Enter save (on Submit) · ? help · Esc cancel",
     );
 
     if app.create_form.domain_selector.is_some() {

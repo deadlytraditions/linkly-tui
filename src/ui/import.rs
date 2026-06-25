@@ -15,7 +15,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 
     let help = match app.import.as_ref().map(|s| &s.stage) {
         Some(ImportStage::Browse) => {
-            "↑↓ move · Enter open/select · Backspace up · t template · Esc cancel"
+            "↑↓ move · Enter open/select · Backspace up · t template · ? help · Esc cancel"
         }
         Some(ImportStage::Preview(_)) => "Enter/y import · Esc back",
         Some(ImportStage::Running(_)) => "importing…",

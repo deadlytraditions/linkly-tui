@@ -280,6 +280,12 @@ impl App {
             }
             return;
         }
+        // `?` opens help on any screen, except where a text field is focused
+        // (so URLs/queries containing `?` can still be typed).
+        if key.code == KeyCode::Char('?') && self.question_opens_help() {
+            self.help_open = true;
+            return;
+        }
         match self.screen {
             Screen::WorkspacePicker => self.on_picker_key(key),
             Screen::Auth => self.on_auth_key(key),
@@ -328,8 +334,27 @@ impl App {
                     self.start_auth(Some(ws));
                 }
             }
-            KeyCode::Char('?') => self.help_open = true,
             _ => {}
+        }
+    }
+
+    /// Whether pressing `?` should open the help overlay on the current screen.
+    /// Returns false when a text field is focused so `?` types normally.
+    fn question_opens_help(&self) -> bool {
+        match self.screen {
+            Screen::Auth => false,
+            Screen::WorkspacePicker => true,
+            Screen::Import => true, // no text fields in any import stage
+            Screen::LinkList => !self.searching && !self.sort_open && !self.store_prompt,
+            Screen::LinkDetail => self
+                .editor
+                .as_ref()
+                .map(|e| e.mode == DetailMode::Nav)
+                .unwrap_or(true),
+            Screen::CreateLink => {
+                self.create_form.domain_selector.is_none()
+                    && self.create_form.input(self.create_form.current()).is_none()
+            }
         }
     }
 
@@ -503,7 +528,6 @@ impl App {
             KeyCode::Char('Q') => self.open_qr_settings(Some(QrExportTarget::Workspace)),
             KeyCode::Char('o') => self.open_qr_settings(None),
             KeyCode::Char('i') => self.open_import(),
-            KeyCode::Char('?') => self.help_open = true,
             KeyCode::Char('r') => self.reload("Refreshing…", self.page),
             KeyCode::Char('/') => {
                 self.searching = true;
@@ -560,7 +584,6 @@ impl App {
                 }
             }
             KeyCode::Enter => self.detail_enter(),
-            KeyCode::Char('?') => self.help_open = true,
             KeyCode::Char('Q') => self.begin_export_current_qr(),
             KeyCode::Char('s') => {
                 if let Some(e) = self.editor.as_mut() {

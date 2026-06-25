@@ -113,8 +113,9 @@ stored for it. Deleting the file removes everything.
 
 ## Keybindings
 
-On the main screens (list, detail, workspaces) the status bar shows a short
-hint; press **`?`** for a popup listing every key for the current screen.
+The status bar shows a short hint; press **`?`** on any screen for a popup
+listing every key for the current screen. (When a text field is focused, `?`
+types normally so URLs/queries can contain it.)
 
 | Screen  | Keys |
 |---------|------|
