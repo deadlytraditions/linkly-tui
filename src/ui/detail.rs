@@ -7,7 +7,7 @@
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Clear, List, ListItem, ListState, Paragraph, Sparkline};
+use ratatui::widgets::{Clear, List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
 
 use crate::app::App;
@@ -91,7 +91,22 @@ pub fn draw(frame: &mut Frame, app: &App) {
     }
 }
 
-/// Render the link's daily clicks (last 30 days) as a graph with a y-axis scale.
+/// Green-intensity colour for a click count (GitHub-style: lighter = fewer,
+/// darker = more).
+fn click_color(v: u64, max: u64) -> Color {
+    if v == 0 || max == 0 {
+        return Color::Rgb(48, 54, 61); // empty
+    }
+    match (((v as f64) / (max as f64)) * 4.0).ceil().clamp(1.0, 4.0) as u8 {
+        1 => Color::Rgb(155, 233, 168),
+        2 => Color::Rgb(64, 196, 99),
+        3 => Color::Rgb(48, 161, 78),
+        _ => Color::Rgb(33, 110, 57),
+    }
+}
+
+/// Render the link's daily clicks (last 30 days) as a GitHub-style heatmap
+/// strip with date labels along the bottom.
 fn render_clicks_chart(frame: &mut Frame, area: Rect, app: &App) {
     let all_time = app.selected_link().map(|l| l.clicks_total).unwrap_or(0);
 
@@ -107,9 +122,8 @@ fn render_clicks_chart(frame: &mut Frame, area: Rect, app: &App) {
         return;
     };
 
-    let data: Vec<u64> = series.iter().map(|(_, y)| (*y).max(0) as u64).collect();
     let sum: i64 = series.iter().map(|(_, y)| *y).sum();
-    let max = data.iter().copied().max().unwrap_or(0);
+    let max = series.iter().map(|(_, y)| (*y).max(0) as u64).max().unwrap_or(0);
 
     if max == 0 {
         frame.render_widget(
@@ -125,43 +139,64 @@ fn render_clicks_chart(frame: &mut Frame, area: Rect, app: &App) {
         return;
     }
 
-    let title =
-        format!("Clicks (last 30 days): {sum} · all-time: {all_time} · peak {max}/day");
+    let title = format!(
+        "Clicks (last 30 days): {sum} · all-time: {all_time} · peak {max}/day · light→dark = more"
+    );
     let block = panel(&title);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    // Left gutter holds the y-axis scale labels; the rest holds the bars.
-    let cols = Layout::horizontal([Constraint::Length(7), Constraint::Min(1)]).split(inner);
-    let gutter = cols[0];
-    let h = gutter.height;
+    let rows = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(inner);
+    let band = rows[0];
+    let labels = rows[1];
 
-    let mut tick = |y: u16, value: u64| {
-        let rect = Rect {
-            x: gutter.x,
-            y,
-            width: gutter.width,
-            height: 1,
-        };
-        frame.render_widget(
-            Paragraph::new(Span::styled(
-                format!("{value:>4} ┤"),
-                Style::default().fg(theme::MUTED),
-            )),
-            rect,
-        );
-    };
-    tick(gutter.y, max);
-    if h >= 3 {
-        tick(gutter.y + h / 2, max / 2);
+    // Fit the days into the available width: 2 cols/day if it fits, else 1,
+    // showing the most recent days that fit.
+    let n = series.len();
+    let aw = band.width as usize;
+    let cell_w = if n > 0 && aw >= 2 * n { 2 } else { 1 };
+    let cap = (aw / cell_w).max(1);
+    let start = n.saturating_sub(cap);
+    let shown = &series[start..];
+
+    // Heatmap band: a full-height coloured cell per day.
+    let cell = "█".repeat(cell_w);
+    let band_lines: Vec<Line> = (0..band.height)
+        .map(|_| {
+            Line::from(
+                shown
+                    .iter()
+                    .map(|(_, y)| {
+                        Span::styled(
+                            cell.clone(),
+                            Style::default().fg(click_color((*y).max(0) as u64, max)),
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect();
+    frame.render_widget(Paragraph::new(band_lines), band);
+
+    // Date labels (MM-DD) under every ~7th day — the day scale.
+    let total_w = shown.len() * cell_w;
+    let mut buf = vec![' '; total_w];
+    for (i, (date, _)) in shown.iter().enumerate() {
+        if i % 7 == 0 {
+            let mmdd = date.get(5..10).unwrap_or(date);
+            let col = i * cell_w;
+            for (k, ch) in mmdd.chars().enumerate() {
+                if col + k < buf.len() {
+                    buf[col + k] = ch;
+                }
+            }
+        }
     }
-    tick(gutter.y + h.saturating_sub(1), 0);
-
-    let sparkline = Sparkline::default()
-        .data(&data)
-        .max(max)
-        .style(Style::default().fg(theme::ACCENT));
-    frame.render_widget(sparkline, cols[1]);
+    let label: String = buf.into_iter().collect();
+    frame.render_widget(
+        Paragraph::new(Span::styled(label, Style::default().fg(theme::MUTED))),
+        labels,
+    );
 }
 
 fn field_item<'a>(f: &EditField, label_width: usize, editing: bool) -> ListItem<'a> {

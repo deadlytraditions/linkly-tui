@@ -63,6 +63,11 @@ impl SortField {
         }
     }
 
+    /// Parse a stored API `sort_by` value back into a field.
+    pub fn from_api(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|f| f.api_field() == s)
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             SortField::Created => "Created",
@@ -463,6 +468,7 @@ impl App {
         self.workspace_id = ws_id;
         self.current_key = key;
         self.pending_ws_name = None;
+        self.restore_workspace_sort(ws_id);
         // The workspace is cached only after the first successful link load
         // confirms the key and workspace id actually work (see `LinksLoaded`).
         self.verify_pending = true;
@@ -516,6 +522,7 @@ impl App {
                     self.sort_desc = self.sort_cursor_desc;
                     self.sort_open = false;
                     self.page = 1;
+                    self.save_workspace_sort();
                     self.reload("Sorting…", 1);
                 }
                 _ => {}
@@ -1236,8 +1243,10 @@ impl App {
         let name = name_hint
             .or_else(|| existing.map(|w| w.name.clone()))
             .unwrap_or_else(|| format!("Workspace {}", self.workspace_id));
-        // Preserve any stored key across the move-to-front.
+        // Preserve any stored key + sort preference across the move-to-front.
         let api_key = existing.and_then(|w| w.api_key.clone());
+        let sort_by = existing.and_then(|w| w.sort_by.clone());
+        let sort_dir = existing.and_then(|w| w.sort_dir.clone());
         self.cached_workspaces.retain(|w| w.id != self.workspace_id);
         self.cached_workspaces.insert(
             0,
@@ -1245,9 +1254,40 @@ impl App {
                 id: self.workspace_id,
                 name,
                 api_key,
+                sort_by,
+                sort_dir,
             },
         );
         crate::config::save_workspaces(&self.cached_workspaces);
+    }
+
+    /// Restore the saved sort for `ws_id`, or reset to the default when none is
+    /// stored (so switching workspaces doesn't carry the previous sort over).
+    fn restore_workspace_sort(&mut self, ws_id: i64) {
+        let (mut field, mut desc) = (SortField::Created, true);
+        if let Some(w) = self.cached_workspaces.iter().find(|w| w.id == ws_id) {
+            if let Some(f) = w.sort_by.as_deref().and_then(SortField::from_api) {
+                field = f;
+            }
+            if let Some(d) = w.sort_dir.as_deref() {
+                desc = d != "asc";
+            }
+        }
+        self.sort_field = field;
+        self.sort_desc = desc;
+    }
+
+    /// Persist the current sort against the active workspace.
+    fn save_workspace_sort(&mut self) {
+        if let Some(w) = self
+            .cached_workspaces
+            .iter_mut()
+            .find(|w| w.id == self.workspace_id)
+        {
+            w.sort_by = Some(self.sort_field.api_field().to_string());
+            w.sort_dir = Some(if self.sort_desc { "desc" } else { "asc" }.to_string());
+            crate::config::save_workspaces(&self.cached_workspaces);
+        }
     }
 
     /// Whether the active workspace already has the current key stored.

@@ -31,9 +31,11 @@ custom domain) without leaving the terminal.
 - **Browse links** — a paginated table of every link in the workspace with live
   click stats (total / 30-day / today) and enabled status. The panel title always
   shows the current sort and page (`page 1/3 · 240 total`). Search, sort by any
-  column (asc/desc), page, and refresh on demand.
-- **View & edit links** — open any link to see a **last-30-days clicks graph**
-  (daily series from the clicks analytics endpoint) plus its fields in a navigable list
+  column (asc/desc), page, and refresh on demand. The chosen sort is remembered
+  per workspace and restored next time you open it.
+- **View & edit links** — open any link to see a **last-30-days clicks heatmap**
+  (GitHub-style green intensity, lighter = fewer, with date labels) plus its
+  fields in a navigable list
   (the current line is highlighted; no free-scrolling). `Enter` edits the
   selected field, `Esc` leaves edit mode. Changed fields are marked, and on the
   way out you're asked to save if there are unsaved changes; `s` saves at any
@@ -102,8 +104,9 @@ LINKLY_API_KEY=sk_… LINKLY_WORKSPACE_ID=42 cargo run --release
 ### Workspace cache & stored keys
 
 Known workspaces are stored at `~/.config/linkly-tui/workspaces.json` (honouring
-`XDG_CONFIG_HOME`). The id and name are always cached. An API key is cached only
-if you explicitly accept the "Store API key?" prompt after signing in.
+`XDG_CONFIG_HOME`). The id, name and your last-used sort are always cached. An
+API key is cached only if you explicitly accept the "Store API key?" prompt after
+signing in.
 
 > ⚠️ **Security warning:** stored keys are written in **plaintext**. Anyone who
 > can read that file (other local users, backups, synced dotfiles, etc.) can use

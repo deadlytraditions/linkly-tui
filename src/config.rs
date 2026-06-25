@@ -19,6 +19,12 @@ pub struct CachedWorkspace {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
+    /// Last-used sort field (API name) for this workspace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sort_by: Option<String>,
+    /// Last-used sort direction (`asc`/`desc`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sort_dir: Option<String>,
 }
 
 /// Returns `(api_key, workspace_id)` prefill values read from the environment.
@@ -106,11 +112,15 @@ mod tests {
                 id: 42,
                 name: "Marketing".to_string(),
                 api_key: Some("secret-key".to_string()),
+                sort_by: Some("clicks_total".to_string()),
+                sort_dir: Some("asc".to_string()),
             },
             CachedWorkspace {
                 id: 7,
                 name: "Personal".to_string(),
                 api_key: None,
+                sort_by: None,
+                sort_dir: None,
             },
         ];
         save_workspaces(&ws);
