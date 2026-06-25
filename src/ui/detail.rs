@@ -17,10 +17,10 @@ use crate::ui::{centered_rect, input_spans, panel, status_bar, theme, with_statu
 pub fn draw(frame: &mut Frame, app: &App) {
     let (main, status) = with_status_bar(frame.area());
 
-    // A clicks trend graph on top, the link fields below.
-    let rows = Layout::vertical([Constraint::Length(9), Constraint::Min(1)]).split(main);
-    render_clicks_chart(frame, rows[0], app);
-    let main = rows[1];
+    // The link fields on top, a clicks graph pinned to the bottom.
+    let rows = Layout::vertical([Constraint::Min(1), Constraint::Length(9)]).split(main);
+    render_clicks_chart(frame, rows[1], app);
+    let main = rows[0];
 
     let Some(editor) = &app.editor else {
         frame.render_widget(
@@ -28,7 +28,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 "Loading…",
                 Style::default().fg(theme::MUTED),
             ))
-            .block(panel("Link details")),
+            .block(panel(&format!("{} · Link details", app.workspace_label()))),
             main,
         );
         status_bar(frame, status, app, "Esc back");
@@ -51,7 +51,13 @@ pub fn draw(frame: &mut Frame, app: &App) {
         .collect();
 
     let dirty = if editor.dirty() { " · unsaved ●" } else { "" };
-    let title = format!("Link #{} · {}{}", editor.id, editor.full_url, dirty);
+    let title = format!(
+        "{} · Link #{} · {}{}",
+        app.workspace_label(),
+        editor.id,
+        editor.full_url,
+        dirty
+    );
 
     // Highlight is yellow while editing the current line, blue while navigating.
     let highlight = if editing {
@@ -85,53 +91,77 @@ pub fn draw(frame: &mut Frame, app: &App) {
     }
 }
 
-/// Render the link's daily clicks (last 30 days) as a graph.
+/// Render the link's daily clicks (last 30 days) as a graph with a y-axis scale.
 fn render_clicks_chart(frame: &mut Frame, area: Rect, app: &App) {
     let all_time = app.selected_link().map(|l| l.clicks_total).unwrap_or(0);
 
-    let (data, sum): (Vec<u64>, i64) = match &app.detail_clicks {
-        Some(series) => (
-            series.iter().map(|(_, y)| (*y).max(0) as u64).collect(),
-            series.iter().map(|(_, y)| *y).sum(),
-        ),
-        None => {
-            frame.render_widget(
-                Paragraph::new(Span::styled(
-                    "Loading clicks…",
-                    Style::default().fg(theme::MUTED),
-                ))
-                .block(panel(&format!(
-                    "{} · Clicks (last 30 days)",
-                    app.workspace_label()
-                ))),
-                area,
-            );
-            return;
-        }
+    let Some(series) = &app.detail_clicks else {
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                "Loading clicks…",
+                Style::default().fg(theme::MUTED),
+            ))
+            .block(panel("Clicks (last 30 days)")),
+            area,
+        );
+        return;
     };
 
-    let title = format!(
-        "{} · Clicks (last 30 days): {sum} · all-time: {all_time}",
-        app.workspace_label()
-    );
+    let data: Vec<u64> = series.iter().map(|(_, y)| (*y).max(0) as u64).collect();
+    let sum: i64 = series.iter().map(|(_, y)| *y).sum();
+    let max = data.iter().copied().max().unwrap_or(0);
 
-    if data.iter().all(|&v| v == 0) {
+    if max == 0 {
         frame.render_widget(
             Paragraph::new(Span::styled(
                 "No clicks recorded in this period.",
                 Style::default().fg(theme::MUTED),
             ))
-            .block(panel(&title)),
+            .block(panel(&format!(
+                "Clicks (last 30 days): 0 · all-time: {all_time}"
+            ))),
             area,
         );
         return;
     }
 
+    let title =
+        format!("Clicks (last 30 days): {sum} · all-time: {all_time} · peak {max}/day");
+    let block = panel(&title);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    // Left gutter holds the y-axis scale labels; the rest holds the bars.
+    let cols = Layout::horizontal([Constraint::Length(7), Constraint::Min(1)]).split(inner);
+    let gutter = cols[0];
+    let h = gutter.height;
+
+    let mut tick = |y: u16, value: u64| {
+        let rect = Rect {
+            x: gutter.x,
+            y,
+            width: gutter.width,
+            height: 1,
+        };
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                format!("{value:>4} ┤"),
+                Style::default().fg(theme::MUTED),
+            )),
+            rect,
+        );
+    };
+    tick(gutter.y, max);
+    if h >= 3 {
+        tick(gutter.y + h / 2, max / 2);
+    }
+    tick(gutter.y + h.saturating_sub(1), 0);
+
     let sparkline = Sparkline::default()
-        .block(panel(&title))
         .data(&data)
+        .max(max)
         .style(Style::default().fg(theme::ACCENT));
-    frame.render_widget(sparkline, area);
+    frame.render_widget(sparkline, cols[1]);
 }
 
 fn field_item<'a>(f: &EditField, label_width: usize, editing: bool) -> ListItem<'a> {
