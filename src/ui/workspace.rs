@@ -104,7 +104,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
 
     frame.render_widget(
         Paragraph::new(Span::styled(
-            "↑↓ select · Enter continue · d forget (+ stored key) · Esc/q quit",
+            "↑↓ select · Enter continue · ? help · Esc/q quit",
             Style::default().fg(theme::MUTED),
         ))
         .alignment(Alignment::Center),

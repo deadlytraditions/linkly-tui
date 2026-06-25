@@ -57,8 +57,9 @@ custom domain) without leaving the terminal.
 - **Create links** — a form exposing the full Linkly option set. Core fields are
   always visible; `Ctrl-A` reveals advanced fields (OG tags, UTM parameters,
   tracking pixels, cloaking, bot-blocking, custom head/body tags, …). The custom
-  **domain is chosen from your workspace's domains**, and the list
-  **auto-refreshes** after a successful create.
+  **domain is chosen from your workspace's domains**, the list
+  **auto-refreshes** after a successful create, and you're offered a QR code for
+  the new link.
 
 ## Requirements
 
@@ -112,12 +113,15 @@ stored for it. Deleting the file removes everything.
 
 ## Keybindings
 
+On the main screens (list, detail, workspaces) the status bar shows a short
+hint; press **`?`** for a popup listing every key for the current screen.
+
 | Screen  | Keys |
 |---------|------|
 | Workspaces | `↑/↓` select · `Enter` continue · `d` forget (+ stored key) · `Esc`/`q` quit |
 | Sign in | `Tab` switch field · `Enter` continue · `Esc` back/quit |
 | Store key? | `s` store · `n`/`Esc` not now |
-| List    | `↑/↓` move · `Enter` details · `c` create · `i` import CSV · `Q` export QR (workspace) · `o` QR defaults · `/` search · `s` sort · `n`/`p` page · `r` refresh · `Esc` workspaces · `q` quit |
+| List    | `↑/↓` move · `Enter` details · `c` create · `i` import CSV · `Q` export QR (workspace) · `o` QR defaults · `/` search · `s` sort · `n`/`p` page · `r` refresh · `?` help · `Esc` workspaces · `q` quit |
 | Import  | browse: `↑/↓` move · `Enter` open/select · `Backspace` up · `t` template · `Esc` cancel · preview: `Enter`/`y` import · done: `y` QR the new links |
 | QR dialog | `↑/↓` field · `←/→` format · type to edit size/colours · `Enter` export/save · `Esc` cancel |
 | Sort    | `↑/↓` field · `d`/`←→` direction · `Enter` apply · `Esc` cancel |

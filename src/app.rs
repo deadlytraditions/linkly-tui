@@ -80,7 +80,7 @@ pub enum AsyncMsg {
     LinksLoaded(ListLinksResponse),
     LinkDetailLoaded(Value),
     DomainsLoaded(Vec<String>),
-    LinkCreated,
+    LinkCreated(NewLink),
     LinkUpdated,
     WorkspacesLoaded(Vec<Workspace>),
     QrExported { count: usize, dir: String },
@@ -162,6 +162,9 @@ pub struct App {
     /// CSV import flow (file browser → preview → run → done), if active.
     pub import: Option<ImportState>,
 
+    /// Whether the keybindings help overlay is showing.
+    pub help_open: bool,
+
     // Link list state.
     pub links: Vec<LinkSummary>,
     pub list_state: TableState,
@@ -231,6 +234,7 @@ impl App {
             qr_bg_input: Input::default(),
             qr_pending: None,
             import: None,
+            help_open: false,
             links: Vec::new(),
             list_state: TableState::default(),
             page: 1,
@@ -260,6 +264,20 @@ impl App {
         // The QR dialog is a global overlay; handle it on any screen.
         if self.qr_settings_open {
             self.on_qr_settings_key(key);
+            return;
+        }
+        // The help overlay swallows keys; dismiss on the obvious ones.
+        if self.help_open {
+            if matches!(
+                key.code,
+                KeyCode::Esc
+                    | KeyCode::Enter
+                    | KeyCode::Char('?')
+                    | KeyCode::Char('q')
+                    | KeyCode::Char('h')
+            ) {
+                self.help_open = false;
+            }
             return;
         }
         match self.screen {
@@ -310,6 +328,7 @@ impl App {
                     self.start_auth(Some(ws));
                 }
             }
+            KeyCode::Char('?') => self.help_open = true,
             _ => {}
         }
     }
@@ -484,6 +503,7 @@ impl App {
             KeyCode::Char('Q') => self.open_qr_settings(Some(QrExportTarget::Workspace)),
             KeyCode::Char('o') => self.open_qr_settings(None),
             KeyCode::Char('i') => self.open_import(),
+            KeyCode::Char('?') => self.help_open = true,
             KeyCode::Char('r') => self.reload("Refreshing…", self.page),
             KeyCode::Char('/') => {
                 self.searching = true;
@@ -540,6 +560,7 @@ impl App {
                 }
             }
             KeyCode::Enter => self.detail_enter(),
+            KeyCode::Char('?') => self.help_open = true,
             KeyCode::Char('Q') => self.begin_export_current_qr(),
             KeyCode::Char('s') => {
                 if let Some(e) = self.editor.as_mut() {
@@ -702,7 +723,7 @@ impl App {
         self.loading = true;
         tokio::spawn(async move {
             let msg = match client.create_link(&body).await {
-                Ok(_) => AsyncMsg::LinkCreated,
+                Ok(v) => AsyncMsg::LinkCreated(NewLink::from_response(&v)),
                 Err(e) => AsyncMsg::Error(e.to_string()),
             };
             let _ = tx.send(msg);
@@ -1245,11 +1266,21 @@ impl App {
                     self.pending_ws_name = name;
                 }
             }
-            AsyncMsg::LinkCreated => {
+            AsyncMsg::LinkCreated(new) => {
                 self.screen = Screen::LinkList;
                 self.status = "Link created — refreshing…".to_string();
                 self.loading = true;
                 self.load_links(self.page);
+                // Offer a QR code for the freshly created link (Enter to export
+                // in the dialog, Esc to skip).
+                if let Some(url) = new.full_url.clone().filter(|u| !u.is_empty()) {
+                    self.open_qr_settings(Some(QrExportTarget::Single(QrSingle {
+                        id: new.id,
+                        slug: new.slug,
+                        name: new.name,
+                        url,
+                    })));
+                }
             }
             AsyncMsg::LinkUpdated => {
                 self.loading = false;

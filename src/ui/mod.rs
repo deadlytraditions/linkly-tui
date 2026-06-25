@@ -67,6 +67,83 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     if app.qr_settings_open {
         render_qr_dialog(frame, app);
     }
+    if app.help_open {
+        render_help(frame, app);
+    }
+}
+
+/// Keybindings shown in the help overlay, per screen.
+fn screen_keybinds(screen: Screen) -> &'static [(&'static str, &'static str)] {
+    match screen {
+        Screen::LinkList => &[
+            ("↑/↓  j/k", "move selection"),
+            ("Enter", "open link details"),
+            ("c", "create a link"),
+            ("i", "import links from CSV"),
+            ("Q", "export QR codes (whole workspace)"),
+            ("o", "edit QR defaults"),
+            ("/", "search"),
+            ("s", "sort"),
+            ("n / p", "next / previous page"),
+            ("r", "refresh"),
+            ("Esc", "back to workspaces"),
+            ("q", "quit"),
+        ],
+        Screen::LinkDetail => &[
+            ("↑/↓", "move between fields"),
+            ("Enter", "edit field / toggle"),
+            ("s", "save changes"),
+            ("Q", "export QR for this link"),
+            ("Esc", "back (prompts if unsaved)"),
+        ],
+        Screen::WorkspacePicker => &[
+            ("↑/↓", "select workspace"),
+            ("Enter", "continue"),
+            ("d", "forget workspace (+ stored key)"),
+            ("Esc / q", "quit"),
+        ],
+        _ => &[],
+    }
+}
+
+fn render_help(frame: &mut Frame, app: &App) {
+    let binds = screen_keybinds(app.screen);
+    if binds.is_empty() {
+        return;
+    }
+    let key_w = binds.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
+
+    let full = frame.area();
+    let width = 52u16.min(full.width.saturating_sub(2));
+    let height = (binds.len() as u16 + 3).min(full.height.saturating_sub(2));
+    let area = Rect {
+        x: full.x + (full.width.saturating_sub(width)) / 2,
+        y: full.y + (full.height.saturating_sub(height)) / 2,
+        width,
+        height,
+    };
+    frame.render_widget(Clear, area);
+
+    let mut lines: Vec<Line> = binds
+        .iter()
+        .map(|(k, desc)| {
+            Line::from(vec![
+                Span::styled(
+                    format!("  {k:<key_w$}   "),
+                    Style::default()
+                        .fg(theme::ACCENT)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled((*desc).to_string(), Style::default().fg(Color::White)),
+            ])
+        })
+        .collect();
+    lines.push(Line::from(Span::styled(
+        "  press ? again or Esc to close",
+        Style::default().fg(theme::MUTED),
+    )));
+
+    frame.render_widget(Paragraph::new(lines).block(panel("Keys")), area);
 }
 
 /// The QR export/settings dialog (a global overlay).

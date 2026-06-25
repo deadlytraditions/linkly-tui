@@ -124,7 +124,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         frame,
         status,
         app,
-        "↑↓ move · Enter details · c create · Q export QR · o QR defaults · / search · s sort · n/p page · r refresh · Esc workspaces · q quit",
+        "/ search · ? help · q quit",
     );
 
     if app.sort_open {
