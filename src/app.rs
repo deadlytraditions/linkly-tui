@@ -114,6 +114,8 @@ pub struct QrSingle {
 pub enum QrExportTarget {
     Single(QrSingle),
     Workspace,
+    /// A specific set of links (e.g. the ones just imported).
+    Many(Vec<QrSingle>),
 }
 
 /// The credential prompt shown on startup.
@@ -924,6 +926,7 @@ impl App {
         match self.qr_pending {
             Some(QrExportTarget::Single(_)) => Some("link"),
             Some(QrExportTarget::Workspace) => Some("workspace"),
+            Some(QrExportTarget::Many(_)) => Some("imported links"),
             None => None,
         }
     }
@@ -1027,6 +1030,7 @@ impl App {
         match pending {
             Some(QrExportTarget::Single(s)) => self.export_single_qr(&s),
             Some(QrExportTarget::Workspace) => self.export_workspace_qr(),
+            Some(QrExportTarget::Many(links)) => self.export_many_qr(links),
             None => {
                 self.status = format!(
                     "QR settings saved · {} · {}px · {} on {}",
@@ -1236,14 +1240,38 @@ impl App {
         }
     }
 
+    /// Open the QR dialog for the freshly-imported links (choose format/size/
+    /// colours, then export).
     fn import_generate_qr(&mut self) {
-        let links: Vec<NewLink> = match &self.import {
+        let links: Vec<QrSingle> = match &self.import {
             Some(s) => match &s.stage {
-                ImportStage::Done(sum) => sum.new_links.clone(),
+                ImportStage::Done(sum) => sum
+                    .new_links
+                    .iter()
+                    .filter_map(|l| {
+                        l.full_url
+                            .clone()
+                            .filter(|u| !u.is_empty())
+                            .map(|url| QrSingle {
+                                id: l.id,
+                                slug: l.slug.clone(),
+                                name: l.name.clone(),
+                                url,
+                            })
+                    })
+                    .collect(),
                 _ => return,
             },
             None => return,
         };
+        if links.is_empty() {
+            return;
+        }
+        self.open_qr_settings(Some(QrExportTarget::Many(links)));
+    }
+
+    /// Write QR codes for a captured set of links on a background task.
+    fn export_many_qr(&mut self, links: Vec<QrSingle>) {
         let ws = self.workspace_id;
         let settings = self.qr_settings.clone();
         let tx = self.tx.clone();
@@ -1253,16 +1281,10 @@ impl App {
             let dir = crate::qr::output_dir(ws);
             let mut count = 0usize;
             for l in &links {
-                if let Some(url) = l.full_url.as_deref().filter(|u| !u.is_empty()) {
-                    let fname = crate::qr::file_name(
-                        l.id,
-                        l.slug.as_deref(),
-                        l.name.as_deref(),
-                        settings.format,
-                    );
-                    if crate::qr::write_qr(url, &dir.join(fname), &settings).is_ok() {
-                        count += 1;
-                    }
+                let fname =
+                    crate::qr::file_name(l.id, l.slug.as_deref(), l.name.as_deref(), settings.format);
+                if crate::qr::write_qr(&l.url, &dir.join(fname), &settings).is_ok() {
+                    count += 1;
                 }
             }
             let _ = tx.send(AsyncMsg::QrExported {
