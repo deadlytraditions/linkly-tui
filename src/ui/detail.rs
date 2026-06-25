@@ -207,9 +207,13 @@ fn render_clicks_chart(frame: &mut Frame, area: Rect, app: &App) {
 
     // Block characters for the partial top cell (bottom-aligned eighths).
     const PARTIAL: [char; 8] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇'];
+    // Rows carrying a horizontal scale line (peak / mid / 0), matching the gutter ticks.
+    let grid_rows = [0usize, h / 2, h.saturating_sub(1)];
+    let grid_style = Style::default().fg(theme::BORDER);
     let band_lines: Vec<Line> = (0..h)
         .map(|r| {
             let from_bottom = h - 1 - r;
+            let is_grid = grid_rows.contains(&r);
             let spans: Vec<Span> = columns
                 .iter()
                 .map(|&(eighths, color)| {
@@ -222,7 +226,12 @@ fn render_clicks_chart(frame: &mut Frame, area: Rect, app: &App) {
                     } else {
                         ' '
                     };
-                    Span::styled(ch.to_string().repeat(cell_w), Style::default().fg(color))
+                    // Draw the gridline through empty space; bars take precedence.
+                    if ch == ' ' && is_grid {
+                        Span::styled("─".repeat(cell_w), grid_style)
+                    } else {
+                        Span::styled(ch.to_string().repeat(cell_w), Style::default().fg(color))
+                    }
                 })
                 .collect();
             Line::from(spans)
