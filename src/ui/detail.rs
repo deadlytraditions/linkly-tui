@@ -4,10 +4,10 @@
 //! the list only scrolls to keep it visible). Enter edits the current field;
 //! changed fields are marked and the title shows unsaved state.
 
-use ratatui::layout::{Constraint, Layout};
+use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Clear, List, ListItem, ListState, Paragraph};
+use ratatui::widgets::{Clear, List, ListItem, ListState, Paragraph, Sparkline};
 use ratatui::Frame;
 
 use crate::app::App;
@@ -17,13 +17,18 @@ use crate::ui::{centered_rect, input_spans, panel, status_bar, theme, with_statu
 pub fn draw(frame: &mut Frame, app: &App) {
     let (main, status) = with_status_bar(frame.area());
 
+    // A clicks trend graph on top, the link fields below.
+    let rows = Layout::vertical([Constraint::Length(9), Constraint::Min(1)]).split(main);
+    render_clicks_chart(frame, rows[0], app);
+    let main = rows[1];
+
     let Some(editor) = &app.editor else {
         frame.render_widget(
             Paragraph::new(Span::styled(
                 "Loading…",
                 Style::default().fg(theme::MUTED),
             ))
-            .block(panel(&format!("{} · Link details", app.workspace_label()))),
+            .block(panel("Link details")),
             main,
         );
         status_bar(frame, status, app, "Esc back");
@@ -46,13 +51,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
         .collect();
 
     let dirty = if editor.dirty() { " · unsaved ●" } else { "" };
-    let title = format!(
-        "{} · Link #{} · {}{}",
-        app.workspace_label(),
-        editor.id,
-        editor.full_url,
-        dirty
-    );
+    let title = format!("Link #{} · {}{}", editor.id, editor.full_url, dirty);
 
     // Highlight is yellow while editing the current line, blue while navigating.
     let highlight = if editing {
@@ -84,6 +83,39 @@ pub fn draw(frame: &mut Frame, app: &App) {
     if editor.mode == DetailMode::ConfirmSave {
         render_confirm_popup(frame, editor);
     }
+}
+
+/// Render the per-link click trend (from the list-view `sparkline`) as a graph.
+fn render_clicks_chart(frame: &mut Frame, area: Rect, app: &App) {
+    let link = app.selected_link();
+    let data: Vec<u64> = link
+        .map(|l| l.sparkline.iter().map(|&v| v.max(0) as u64).collect())
+        .unwrap_or_default();
+    let total = link.map(|l| l.clicks_thirty_days).unwrap_or(0);
+    let today = link.map(|l| l.clicks_today).unwrap_or(0);
+
+    let title = format!(
+        "{} · Clicks (last 30 days) · {total} total · {today} today",
+        app.workspace_label()
+    );
+
+    if data.iter().all(|&v| v == 0) {
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                "No clicks recorded in this period.",
+                Style::default().fg(theme::MUTED),
+            ))
+            .block(panel(&title)),
+            area,
+        );
+        return;
+    }
+
+    let sparkline = Sparkline::default()
+        .block(panel(&title))
+        .data(&data)
+        .style(Style::default().fg(theme::ACCENT));
+    frame.render_widget(sparkline, area);
 }
 
 fn field_item<'a>(f: &EditField, label_width: usize, editing: bool) -> ListItem<'a> {

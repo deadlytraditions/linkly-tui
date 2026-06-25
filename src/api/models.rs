@@ -22,6 +22,9 @@ pub struct LinkSummary {
     pub clicks_thirty_days: i64,
     #[serde(default)]
     pub clicks_total: i64,
+    /// Per-link click time series (used for the detail-view trend graph).
+    #[serde(default)]
+    pub sparkline: Vec<i64>,
 }
 
 /// Paginated response from `GET /api/v1/workspace/{id}/list_links`.
