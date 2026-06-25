@@ -147,8 +147,36 @@ fn render_clicks_chart(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(block, area);
 
     let rows = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(inner);
-    let band = rows[0];
-    let labels = rows[1];
+    let top = rows[0];
+    let label_row = rows[1];
+
+    // Left gutter holds the y-axis scale; bars fill the rest.
+    let cols = Layout::horizontal([Constraint::Length(7), Constraint::Min(1)]).split(top);
+    let gutter = cols[0];
+    let band = cols[1];
+
+    // y-axis ticks: peak (top), mid, 0 (bottom), aligned to the bar rows.
+    let gh = top.height;
+    let mut tick = |y: u16, value: u64| {
+        let rect = Rect {
+            x: gutter.x,
+            y,
+            width: gutter.width,
+            height: 1,
+        };
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                format!("{value:>4} ┤"),
+                Style::default().fg(theme::MUTED),
+            )),
+            rect,
+        );
+    };
+    tick(top.y, max);
+    if gh >= 3 {
+        tick(top.y + gh / 2, max / 2);
+    }
+    tick(top.y + gh.saturating_sub(1), 0);
 
     let n = series.len();
     let aw = band.width as usize;
@@ -217,9 +245,15 @@ fn render_clicks_chart(frame: &mut Frame, area: Rect, app: &App) {
         }
     }
     let label: String = buf.into_iter().collect();
+    let label_area = Rect {
+        x: band.x,
+        y: label_row.y,
+        width: band.width,
+        height: 1,
+    };
     frame.render_widget(
         Paragraph::new(Span::styled(label, Style::default().fg(theme::MUTED))),
-        labels,
+        label_area,
     );
 }
 
